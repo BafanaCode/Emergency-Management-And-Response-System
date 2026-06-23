@@ -1,0 +1,300 @@
+/* =========================================================
+   Alert24 - Emergency Management System
+   Formal, serious design for critical operations
+   ========================================================= */
+
+/* Reset and base styles */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background-color: #1a2744;
+  color: #e2e8f0;
+  min-height: 100vh;
+}
+
+/* Full-screen container */
+.app-container {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background-image: url("./images/image13.jpg");
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-blend-mode: overlay;
+  background-color: rgba(26, 39, 68, 0.85);
+}
+
+/* Centered card */
+.auth-card {
+  width: 100%;
+  max-width: 420px;
+  background-color: #0f1a2e;
+  border: 1px solid #2d4a6b;
+  border-radius: 6px;
+  padding: 32px 28px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+}
+
+/* Header section */
+.card-header {
+  text-align: center;
+  margin-bottom: 16px;
+}
+
+.alert-icon {
+  width: 48px;
+  height: 48px;
+  margin-bottom: 12px;
+}
+
+.app-title {
+  font-size: 28px;
+  font-weight: 700;
+  color: #ffffff;
+  letter-spacing: 1px;
+  margin-bottom: 4px;
+}
+
+.slogan {
+  font-size: 14px;
+  font-style: italic;
+  color: #c0392b;
+  letter-spacing: 0.5px;
+}
+
+/* Divider */
+.divider {
+  height: 2px;
+  background-color: #c0392b;
+  margin-bottom: 24px;
+}
+
+/* Form styles */
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* Input wrapper with icons */
+.input-wrapper {
+  position: relative;
+  width: 100%;
+}
+
+.input-icon {
+  position: absolute;
+  left: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 20px;
+  height: 20px;
+  pointer-events: none;
+}
+
+/* Input fields */
+.field-input {
+  width: 100%;
+  height: 48px;
+  padding: 0 44px;
+  font-size: 15px;
+  color: #e2e8f0;
+  background-color: #1e2f4a;
+  border: 1px solid #2d4a6b;
+  border-radius: 6px;
+  outline: none;
+  transition: all 0.2s ease;
+}
+
+.field-input::placeholder {
+  color: #64748b;
+}
+
+.field-input:focus {
+  border-color: #c0392b;
+  box-shadow: 0 0 0 2px rgba(192, 57, 43, 0.25);
+}
+
+/* Role select dropdown */
+.role-select {
+  padding-left: 16px !important;
+  cursor: pointer;
+}
+
+.role-select option {
+  background-color: #1e2f4a;
+  color: #e2e8f0;
+}
+
+/* Toggle password button */
+.toggle-password {
+  position: absolute;
+  right: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 4px;
+  transition: all 0.2s ease;
+}
+
+.toggle-password:hover {
+  opacity: 0.8;
+}
+
+.toggle-icon {
+  width: 20px;
+  height: 20px;
+}
+
+/* Password mismatch error */
+.password-error {
+  color: #f87171;
+  font-size: 13px;
+  margin-top: -8px;
+  margin-bottom: 0;
+}
+
+/* Error banner */
+.error-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background-color: rgba(248, 113, 113, 0.1);
+  border: 1px solid rgba(248, 113, 113, 0.3);
+  border-radius: 6px;
+  padding: 12px 14px;
+  color: #f87171;
+  font-size: 14px;
+}
+
+/* Success banner */
+.success-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background-color: rgba(22, 163, 74, 0.1);
+  border: 1px solid rgba(22, 163, 74, 0.3);
+  border-radius: 6px;
+  padding: 12px 14px;
+  color: #16a34a;
+  font-size: 14px;
+}
+
+.warning-icon {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
+/* Buttons */
+.btn {
+  width: 100%;
+  height: 48px;
+  font-size: 15px;
+  font-weight: 700;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  letter-spacing: 0.5px;
+}
+
+.btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background-color: #c0392b;
+  color: #ffffff;
+  margin-top: 4px;
+}
+
+.btn-primary:not(:disabled):hover {
+  background-color: #a93226;
+}
+
+.btn-logout {
+  background-color: #c0392b;
+  color: #ffffff;
+  margin-top: 20px;
+}
+
+.btn-logout:not(:disabled):hover {
+  background-color: #a93226;
+}
+
+/* Auth link */
+.auth-link {
+  text-align: center;
+  margin-top: 12px;
+  font-size: 14px;
+  color: #94a3b8;
+}
+
+.link-button {
+  background: transparent;
+  border: none;
+  color: #c0392b;
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
+  font-size: 14px;
+  transition: all 0.2s ease;
+  margin-left: 4px;
+}
+
+.link-button:hover {
+  color: #f87171;
+}
+
+/* Logged in view */
+.logged-in {
+  text-align: center;
+  padding-top: 8px;
+}
+
+.welcome-text {
+  color: #94a3b8;
+  font-size: 15px;
+  margin-bottom: 8px;
+}
+
+.user-email {
+  color: #e2e8f0;
+  font-size: 17px;
+  font-weight: 600;
+  word-break: break-all;
+}
+
+/* Footer */
+.footer-text {
+  text-align: center;
+  margin-top: 24px;
+  font-size: 12px;
+  color: #475569;
+}
+
+/* Responsive */
+@media (max-width: 480px) {
+  .auth-card {
+    padding: 24px 20px;
+  }
+  
+  .app-title {
+    font-size: 24px;
+  }
+}
