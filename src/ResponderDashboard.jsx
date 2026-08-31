@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { auth, db } from './firebase';
-import { signOut, onAuthStateChanged } from 'firebase/auth';
+import { db } from './firebase';
 import {
   collection,
   query,
@@ -14,7 +13,7 @@ import {
 } from 'firebase/firestore';
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
 import './ResponderDashboard.css';
-import backgroundImage from './images/image4.jpg';
+import backgroundImage from './images/image4.webp';
 
 const formatDate = (timestamp) => {
   if (!timestamp) return '';
@@ -41,12 +40,8 @@ const formatDate = (timestamp) => {
   return `${day} ${month} ${year} ${hours}:${minutes}`;
 };
 
-const ResponderDashboard = ({ onLogout }) => {
+const ResponderDashboard = ({ onLogout, user, userData }) => {
   const [activeTab, setActiveTab] = useState('dashboard');
-  const [user, setUser] = useState(null);
-  const [userData, setUserData] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [authError, setAuthError] = useState('');
   const [errorBanner, setErrorBanner] = useState('');
 
   // Incidents and statuses
@@ -61,58 +56,11 @@ const ResponderDashboard = ({ onLogout }) => {
   // Profile state
   const [editingProfile, setEditingProfile] = useState(false);
   const [profileForm, setProfileForm] = useState({
-    name: '',
-    phone: '',
-    speciality: ''
+    name: userData?.name || '',
+    phone: userData?.phone || '',
+    speciality: userData?.speciality || ''
   });
   const [profileSuccess, setProfileSuccess] = useState('');
-
-  // Auth guard
-  useEffect(() => {
-    let unsubscribeAuth;
-    let unsubscribeUser;
-
-    unsubscribeAuth = onAuthStateChanged(auth, async (currentUser) => {
-      if (!currentUser) {
-        setUser(null);
-        setLoading(false);
-        return;
-      }
-
-      setUser(currentUser);
-
-      const userDocRef = doc(db, 'users', currentUser.uid);
-      unsubscribeUser = onSnapshot(
-        userDocRef,
-        (docSnap) => {
-          if (docSnap.exists()) {
-            const data = docSnap.data();
-            setUserData(data);
-            setProfileForm({
-              name: data.name || '',
-              phone: data.phone || '',
-              speciality: data.speciality || ''
-            });
-            if (data.role !== 'responder') {
-              setAuthError('Access denied');
-              signOut(auth);
-            }
-          }
-          setLoading(false);
-        },
-        (err) => {
-          console.error('Error fetching user:', err);
-          setErrorBanner('Error loading user data');
-          setLoading(false);
-        }
-      );
-    });
-
-    return () => {
-      if (unsubscribeAuth) unsubscribeAuth();
-      if (unsubscribeUser) unsubscribeUser();
-    };
-  }, []);
 
   // Fetch assigned incidents
   useEffect(() => {
@@ -338,12 +286,6 @@ const ResponderDashboard = ({ onLogout }) => {
 
   const unreadCount = notifications.filter((n) => !n.isRead).length;
 
-  if (loading) {
-    return <div className="loading-container">Loading...</div>;
-  }
-  if (authError) {
-    return <div className="error-container">{authError}</div>;
-  }
 
   const ShieldIcon = () => (
     <svg

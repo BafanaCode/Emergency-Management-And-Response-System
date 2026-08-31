@@ -1,34 +1,27 @@
-import React, { useState, useEffect } from 'react';
-import { auth, db, storage } from './firebase';
-import { signOut, onAuthStateChanged } from 'firebase/auth';
+import React, { useState, useEffect, useRef } from 'react';
+import { db, storage } from './firebase';
 import {
   collection,
   query,
   where,
   orderBy,
-  limit,
   onSnapshot,
   addDoc,
   serverTimestamp,
   doc,
-  updateDoc,
-  setDoc
+  updateDoc
 } from 'firebase/firestore';
 import {
   ref,
   uploadBytesResumable,
   getDownloadURL
 } from 'firebase/storage';
-import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 import './Dashboard.css';
-import backgroundImage from './images/image4.jpg';
+import backgroundImage from './images/image4.webp';
 
-const Dashboard = ({ onLogout }) => {
+const Dashboard = ({ onLogout, user, userData }) => {
   const [activeTab, setActiveTab] = useState('dashboard');
-  const [user, setUser] = useState(null);
-  const [userData, setUserData] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [authError, setAuthError] = useState('');
 
   // Dashboard state
   const [incidents, setIncidents] = useState([]);
@@ -49,6 +42,9 @@ const Dashboard = ({ onLogout }) => {
   // Modal state
   const [viewIncident, setViewIncident] = useState(null);
   const [statusLogs, setStatusLogs] = useState([]);
+
+  // Ref holding the active statusLogs onSnapshot unsubscribe function
+  const statusLogsUnsubRef = useRef(null);
 
   // My Reports filters
   const [statusFilter, setStatusFilter] = useState('All');
@@ -74,85 +70,7 @@ const Dashboard = ({ onLogout }) => {
     return `${day} ${month} ${year} ${hours}:${minutes}`;
   };
 
-  // Authentication guard
-  useEffect(() => {
-    let unsubscribeAuth;
-    let unsubscribeUser;
-
-    unsubscribeAuth = onAuthStateChanged(auth, async (currentUser) => {
-      if (!currentUser) {
-        setUser(null);
-        setLoading(false);
-        return;
-      }
-
-      setUser(currentUser);
-
-      // Get user data from Firestore
-      const userDocRef = doc(db, 'users', currentUser.uid);
-
-      unsubscribeUser = onSnapshot(userDocRef, async (docSnap) => {
-        try {
-          if (docSnap.exists()) {
-            const data = docSnap.data();
-            setUserData(data);
-
-            // Check role
-            if (data.role !== 'reporter' && data.role !== 'responder' && data.role !== 'dispatcher') {
-              setAuthError('Access denied. Invalid role.');
-              signOut(auth);
-            } else {
-              setAuthError('');
-            }
-          } else {
-            // User document doesn't exist yet - try to create it
-            console.log('User document not found, creating it...');
-            await setDoc(userDocRef, {
-              uid: currentUser.uid,
-              name: currentUser.displayName || 'User',
-              email: currentUser.email,
-              phone: '',
-              role: 'reporter',
-              createdAt: serverTimestamp()
-            });
-            // The onSnapshot will trigger again once the doc is created
-            return;
-          }
-        } catch (err) {
-          console.error('Error handling user data:', err);
-          // Fallback to temporary data so app still works
-          setUserData({
-            uid: currentUser.uid,
-            name: currentUser.displayName || 'User',
-            email: currentUser.email,
-            phone: '',
-            role: 'reporter',
-            createdAt: null
-          });
-        }
-        setLoading(false);
-      }, (err) => {
-        console.error('Error fetching user data:', err);
-        // Fallback to temporary data so app still works
-        setUserData({
-          uid: currentUser.uid,
-          name: currentUser.displayName || 'User',
-          email: currentUser.email,
-          phone: '',
-          role: 'reporter',
-          createdAt: null
-        });
-        setLoading(false);
-      });
-    });
-
-    return () => {
-      if (unsubscribeAuth) unsubscribeAuth();
-      if (unsubscribeUser) unsubscribeUser();
-    };
-  }, []);
-
-  // Fetch incidents and calculate stats
+  // Fetch incidents, calculate stats, and derive active incident — single listener
   useEffect(() => {
     if (!user) return;
 
@@ -191,8 +109,11 @@ const Dashboard = ({ onLogout }) => {
         else if (incident.status === 'En Route' || incident.status === 'On Scene') inProgress++;
         else if (incident.status === 'Resolved') resolved++;
       });
-
       setStats({ total, pending, inProgress, resolved });
+
+      // Derive active incident (first non-resolved, already sorted newest-first)
+      const active = data.find(i => i.status !== 'Resolved') || null;
+      setActiveIncident(active);
     }, (err) => {
       console.error('Error fetching incidents:', err);
       alert('Error fetching incidents: ' + err.message);
@@ -201,37 +122,6 @@ const Dashboard = ({ onLogout }) => {
     return () => unsubscribe();
   }, [user]);
 
-  // Fetch active incident
-  useEffect(() => {
-    if (!user) return;
-
-    const q = query(
-      collection(db, 'incidents'),
-      where('reporterId', '==', user.uid)
-    );
-
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      // Get all non-resolved incidents and sort by createdAt (newest first)
-      const activeIncidents = snapshot.docs
-        .map(doc => ({ incidentId: doc.id, ...doc.data() }))
-        .filter(incident => incident.status !== 'Resolved')
-        .sort((a, b) => {
-          if (!a.createdAt) return 1;
-          if (!b.createdAt) return -1;
-          return b.createdAt.toMillis() - a.createdAt.toMillis();
-        });
-
-      if (activeIncidents.length > 0) {
-        setActiveIncident(activeIncidents[0]);
-      } else {
-        setActiveIncident(null);
-      }
-    }, (err) => {
-      console.error('Error fetching active incident:', err);
-    });
-
-    return () => unsubscribe();
-  }, [user]);
 
   // Fetch notifications
   useEffect(() => {
@@ -372,18 +262,35 @@ const Dashboard = ({ onLogout }) => {
     }
   };
 
-  // Handle viewing incident details
-  const handleViewIncident = async (incident) => {
-    setViewIncident(incident);
+  // Unsubscribe the statusLogs listener when the component unmounts
+  useEffect(() => {
+    return () => {
+      if (statusLogsUnsubRef.current) {
+        statusLogsUnsubRef.current();
+        statusLogsUnsubRef.current = null;
+      }
+    };
+  }, []);
 
-    // Fetch status logs
+  // Handle viewing incident details
+  const handleViewIncident = (incident) => {
+    // Unsubscribe the previous statusLogs listener before attaching a new one
+    if (statusLogsUnsubRef.current) {
+      statusLogsUnsubRef.current();
+      statusLogsUnsubRef.current = null;
+    }
+
+    setViewIncident(incident);
+    setStatusLogs([]);
+
+    // Fetch status logs for the selected incident
     const q = query(
       collection(db, 'statusLogs'),
       where('incidentId', '==', incident.incidentId),
       orderBy('timestamp', 'desc')
     );
 
-    onSnapshot(q, (snapshot) => {
+    statusLogsUnsubRef.current = onSnapshot(q, (snapshot) => {
       const data = snapshot.docs.map(doc => ({
         logId: doc.id,
         ...doc.data()
@@ -411,30 +318,97 @@ const Dashboard = ({ onLogout }) => {
     }
   };
 
-  if (loading) {
-    return <div className="loading-container">Loading...</div>;
-  }
+  // Pie chart colour map — matches status badge system
+  const PIE_COLORS = {
+    'Reported': '#64748b',
+    'Assigned': '#3b82f6',
+    'En Route': '#8b5cf6',
+    'On Scene': '#f59e0b',
+    'Resolved': '#22c55e'
+  };
 
-  if (authError) {
-    return <div className="error-container">{authError}</div>;
-  }
+  // Compute pie data
+  const pieData = (() => {
+    const statusCounts = {};
+    incidents.forEach(incident => {
+      statusCounts[incident.status] = (statusCounts[incident.status] || 0) + 1;
+    });
+    return Object.entries(statusCounts).map(([name, value]) => ({ name, value }));
+  })();
+
+  // Initials for avatar
+  const initials = (userData?.name || user?.email || 'U')
+    .split(' ')
+    .map(w => w[0])
+    .slice(0, 2)
+    .join('')
+    .toUpperCase();
+
+  // ── SVG icon components ──────────────────────────────────
+
+  const IconShield = ({ size = 28, className = '' }) => (
+    <svg className={className} width={size} height={size} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M12 2L3 7V12C3 16.5 6.84 20.74 12 22C17.16 20.74 21 16.5 21 12V7L12 2Z" fill="#c0392b" />
+      <path d="M12 8V14" stroke="white" strokeWidth="2" strokeLinecap="round" />
+      <path d="M12 16V17" stroke="white" strokeWidth="2" strokeLinecap="round" />
+    </svg>
+  );
+
+  const IconHome = () => (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M3 9L12 2L21 9V20C21 20.5304 20.7893 21.0391 20.4142 21.4142C20.0391 21.7893 19.5304 22 19 22H5C4.46957 22 3.96086 21.7893 3.58579 21.4142C3.21071 21.0391 3 20.5304 3 20V9Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M9 22V12H15V22" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+
+  const IconAlert = () => (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M12 9V13" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      <path d="M12 17H12.01" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      <path d="M10.29 3.86L1.82 18C1.64 18.3 1.57 18.63 1.61 18.95C1.65 19.27 1.79 19.58 2 19.83C2.21 20.08 2.48 20.27 2.79 20.38C3.09 20.49 3.42 20.51 3.73 20.43L20.27 16.14C20.59 16.06 20.88 15.89 21.1 15.65C21.33 15.41 21.47 15.11 21.51 14.79C21.55 14.47 21.49 14.14 21.33 13.86L14.71 2.86C14.55 2.57 14.31 2.34 14.01 2.19C13.72 2.04 13.39 1.98 13.06 2.02C12.73 2.06 12.42 2.19 12.17 2.41C11.92 2.62 11.74 2.9 11.65 3.22L10.29 3.86Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+
+  const IconFile = () => (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M14 2H6C5.46957 2 4.96086 2.21071 4.58579 2.58579C4.21071 2.96086 4 3.46957 4 4V20C4 20.5304 4.21071 21.0391 4.58579 21.4142C4.96086 21.7893 5.46957 22 6 22H18C18.5304 22 19.0391 21.7893 19.4142 21.4142C19.7893 21.0391 20 20.5304 20 20V8L14 2Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M14 2V8H20" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M16 13H8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      <path d="M16 17H8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+    </svg>
+  );
+
+  const IconUser = () => (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M20 21V19C20 17.9391 19.5786 16.9217 18.8284 16.1716C18.0783 15.4214 17.0609 15 16 15H8C6.93913 15 5.92172 15.4214 5.17157 16.1716C4.42143 16.9217 4 17.9391 4 19V21" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M12 11C14.2091 11 16 9.20914 16 7C16 4.79086 14.2091 3 12 3C9.79086 3 8 4.79086 8 7C8 9.20914 9.79086 11 12 11Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+
+  const IconBell = () => (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M18 8C18 6.4087 17.3679 4.88258 16.2426 3.75736C15.1174 2.63214 13.5913 2 12 2C10.4087 2 8.88258 2.63214 7.75736 3.75736C6.63214 4.88258 6 6.4087 6 8C6 15 3 17 3 17H21C21 17 18 15 18 8Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M13.73 21C13.5542 21.3031 13.3019 21.5547 12.9982 21.7295C12.6946 21.9044 12.3504 21.9965 12 21.9965C11.6496 21.9965 11.3054 21.9044 11.0018 21.7295C10.6982 21.5547 10.4458 21.3031 10.27 21" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+
+  const unreadCount = notifications.filter(n => !n.isRead).length;
+
+  // ── JSX ─────────────────────────────────────────────────
 
   return (
     <div className="dashboard-container" style={{ backgroundImage: `url(${backgroundImage})` }}>
-      {/* Top Navigation Bar */}
+
+      {/* ── TOP NAVIGATION ────────────────────────────────── */}
       <nav className="top-nav">
         <div className="nav-left">
-          <svg className="nav-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M12 2L3 7V12C3 16.5 6.84 20.74 12 22C17.16 20.74 21 16.5 21 12V7L12 2Z" fill="#c0392b" />
-            <path d="M12 8V14" stroke="white" strokeWidth="2" strokeLinecap="round" />
-            <path d="M12 16V17" stroke="white" strokeWidth="2" strokeLinecap="round" />
-          </svg>
+          <IconShield size={26} className="nav-icon" />
           <span className="nav-title">Alert24</span>
         </div>
 
         <div className="nav-center">
           <span className="blinking-dot"></span>
-          <span className="system-status">SYSTEM ACTIVE</span>
+          <span className="system-status">System Active</span>
         </div>
 
         <div className="nav-right">
@@ -442,93 +416,94 @@ const Dashboard = ({ onLogout }) => {
             <span className="user-name">{userData?.name || 'User'}</span>
             <span className="user-email">{user?.email}</span>
           </div>
-          <button className="logout-btn" onClick={onLogout}>Logout</button>
+          <button className="logout-btn" onClick={onLogout}>Sign out</button>
         </div>
       </nav>
 
       <div className="dashboard-main">
-        {/* Sidebar */}
+
+        {/* ── SIDEBAR ───────────────────────────────────────── */}
         <aside className="sidebar">
           <nav className="sidebar-nav">
             <button
               className={`sidebar-link ${activeTab === 'dashboard' ? 'active' : ''}`}
               onClick={() => setActiveTab('dashboard')}
+              title="Dashboard"
             >
-              <span className="link-icon">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <path d="M3 9L12 2L21 9V20C21 20.5304 20.7893 21.0391 20.4142 21.4142C20.0391 21.7893 19.5304 22 19 22H5C4.46957 22 3.96086 21.7893 3.58579 21.4142C3.21071 21.0391 3 20.5304 3 20V9Z" stroke="#94a3b8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                  <path d="M9 22V12H15V22" stroke="#94a3b8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-              </span>
+              <span className="link-icon"><IconHome /></span>
               <span>Dashboard</span>
             </button>
             <button
               className={`sidebar-link ${activeTab === 'report' ? 'active' : ''}`}
               onClick={() => setActiveTab('report')}
+              title="Report Emergency"
             >
-              <span className="link-icon">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <path d="M12 2C12 2 8 6 8 12C8 14.1217 8.84285 16.1566 10.3431 17.6569C11.8434 19.1571 13.8783 20 16 20C18.1217 20 20.1566 19.1571 21.6569 17.6569C23.1571 16.1566 24 14.1217 24 12C24 6 20 2 20 2" stroke="#94a3b8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                  <path d="M16 16C16 14.9391 16.4214 13.9217 17.1716 13.1716C17.9217 12.4214 18.9391 12 20 12" stroke="#94a3b8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-              </span>
+              <span className="link-icon"><IconAlert /></span>
               <span>Report Emergency</span>
             </button>
             <button
               className={`sidebar-link ${activeTab === 'myReports' ? 'active' : ''}`}
               onClick={() => setActiveTab('myReports')}
+              title="My Reports"
             >
-              <span className="link-icon">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <path d="M14 2H6C5.46957 2 4.96086 2.21071 4.58579 2.58579C4.21071 2.96086 4 3.46957 4 4V20C4 20.5304 4.21071 21.0391 4.58579 21.4142C4.96086 21.7893 5.46957 22 6 22H18C18.5304 22 19.0391 21.7893 19.4142 21.4142C19.7893 21.0391 20 20.5304 20 20V8L14 2Z" stroke="#94a3b8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                  <path d="M14 2V8H20" stroke="#94a3b8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                  <path d="M16 13H8" stroke="#94a3b8" strokeWidth="2" strokeLinecap="round" />
-                  <path d="M16 17H8" stroke="#94a3b8" strokeWidth="2" strokeLinecap="round" />
-                </svg>
-              </span>
+              <span className="link-icon"><IconFile /></span>
               <span>My Reports</span>
             </button>
             <button
               className={`sidebar-link ${activeTab === 'profile' ? 'active' : ''}`}
               onClick={() => setActiveTab('profile')}
+              title="My Profile"
             >
-              <span className="link-icon">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <path d="M20 21V19C20 17.9391 19.5786 16.9217 18.8284 16.1716C18.0783 15.4214 17.0609 15 16 15H8C6.93913 15 5.92172 15.4214 5.17157 16.1716C4.42143 16.9217 4 17.9391 4 19V21" stroke="#94a3b8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                  <path d="M12 11C14.2091 11 16 9.20914 16 7C16 4.79086 14.2091 3 12 3C9.79086 3 8 4.79086 8 7C8 9.20914 9.79086 11 12 11Z" stroke="#94a3b8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-              </span>
+              <span className="link-icon"><IconUser /></span>
               <span>My Profile</span>
             </button>
           </nav>
           <div className="sidebar-footer">
-            <span>Alert24 v1.0</span>
+            Alert24 v1.0
           </div>
         </aside>
 
-        {/* Main Content Area */}
+        {/* ── MAIN CONTENT ──────────────────────────────────── */}
         <main className="content-area">
+
+          {/* ═══════════════════════════════════════════════
+              DASHBOARD TAB
+              ═══════════════════════════════════════════════ */}
           {activeTab === 'dashboard' && (
             <>
+              {/* Page heading */}
+              <div className="page-header">
+                <h1 className="page-title">Overview</h1>
+                <p className="page-subtitle">
+                  Welcome back, {userData?.name?.split(' ')[0] || 'there'}. Here's your incident summary.
+                </p>
+              </div>
+
               {/* Status Banner */}
-              <div className="status-banner">
+              <div className={`status-banner ${activeIncident ? 'status-active' : 'status-idle'}`}>
                 <div className="banner-left">
                   {activeIncident ? (
                     <>
                       <div className="pulsing-dot"></div>
-                      <span className="banner-text">Active Emergency — {activeIncident.type} — {activeIncident.status}</span>
+                      <span className="banner-text">
+                        Active — {activeIncident.type} &mdash; {activeIncident.status}
+                      </span>
                     </>
                   ) : (
                     <>
                       <div className="static-dot"></div>
-                      <span className="banner-text-muted">No Active Emergency</span>
+                      <span className="banner-text-muted">No active emergencies</span>
                     </>
                   )}
                 </div>
                 {activeIncident ? (
-                  <button className="banner-btn" onClick={() => handleViewIncident(activeIncident)}>View Status</button>
+                  <button className="banner-btn" onClick={() => handleViewIncident(activeIncident)}>
+                    View Status
+                  </button>
                 ) : (
-                  <button className="banner-btn" onClick={() => setActiveTab('report')}>Report Emergency</button>
+                  <button className="banner-btn" onClick={() => setActiveTab('report')}>
+                    Report Emergency
+                  </button>
                 )}
               </div>
 
@@ -536,8 +511,8 @@ const Dashboard = ({ onLogout }) => {
               <div className="stats-row">
                 <div className="stat-card">
                   <div className="stat-icon blue">
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                      <path d="M14 2H6C5.46957 2 4.96086 2.21071 4.58579 2.58579C4.21071 2.96086 4 3.46957 4 4V20C4 20.5304 4.21071 21.0391 4.58579 21.4142C4.96086 21.7893 5.46957 22 6 22H18C18.5304 22 19.0391 21.7893 19.4142 21.4142C19.7893 21.0391 20 20.5304 20 20V8L14 2Z" stroke="#2563eb" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                      <path d="M14 2H6C5.46957 2 4.96086 2.21071 4.58579 2.58579C4.21071 2.96086 4 3.46957 4 4V20C4 20.5304 4.21071 21.0391 4.58579 21.4142C4.96086 21.7893 5.46957 22 6 22H18C18.5304 22 19.0391 21.7893 19.4142 21.4142C19.7893 21.0391 20 20.5304 20 20V8L14 2Z" stroke="#3b82f6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                     </svg>
                   </div>
                   <div className="stat-number">{stats.total}</div>
@@ -546,10 +521,10 @@ const Dashboard = ({ onLogout }) => {
                 </div>
                 <div className="stat-card">
                   <div className="stat-icon yellow">
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                      <path d="M12 9V13" stroke="#d97706" strokeWidth="2" strokeLinecap="round" />
-                      <path d="M12 17H12.01" stroke="#d97706" strokeWidth="2" strokeLinecap="round" />
-                      <path d="M10.29 3.86L1.82 18C1.6583 18.2782 1.56832 18.6029 1.57189 18.9348C1.57546 19.2668 1.67229 19.5903 1.85 19.86C2.02602 20.1356 2.27553 20.3484 2.57 20.47C2.86571 20.5934 3.19559 20.6228 3.51 20.555L20.49 16.95C20.8078 16.8822 21.0961 16.7183 21.31 16.48C21.524 16.2417 21.6533 15.9417 21.68 15.62C21.7066 15.2982 21.6293 14.9766 21.46 14.7L15.71 3.86C15.5382 3.5513 15.2764 3.29518 14.96 3.12C14.6523 2.95438 14.3042 2.8824 13.95 2.915C13.5958 2.9476 13.2582 3.0832 12.98 3.31C12.6946 3.54704 12.485 3.86167 12.38 4.21C12.3236 4.3673 12.29 4.5342 12.28 4.7035C12.27 4.8728 12.2839 5.0421 12.321 5.2041C12.3581 5.3661 12.4177 5.5175 12.496 5.6511C12.5743 5.7847 12.6696 5.8981 12.776 5.9864C12.8824 6.0747 12.9976 6.1363 13.116 6.1671C13.2344 6.1979 13.3542 6.1973 13.4725 6.1653C13.5908 6.1333 13.7047 6.0707 13.8064 5.9819C13.9081 5.8931 13.9946 5.7803 14.06 5.6511C14.1254 5.5219 14.1672 5.3793 14.182 5.2329C14.1968 5.0865 14.1844 4.939 14.1454 4.7985C14.1064 4.658 14.0417 4.5269 13.955 4.4128C13.8683 4.2987 13.7613 4.2042 13.64 4.135C13.5187 4.0658 13.3859 4.0235 13.25 4.01C13.1141 3.9965 12.9795 4.0128 12.851 4.0578C12.7225 4.1028 12.6031 4.1753 12.5 4.27C12.42 4.13 12.35 3.98 12.29 3.86Z" stroke="#d97706" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                      <circle cx="12" cy="12" r="10" stroke="#f59e0b" strokeWidth="2" />
+                      <path d="M12 8V12" stroke="#f59e0b" strokeWidth="2" strokeLinecap="round" />
+                      <path d="M12 16H12.01" stroke="#f59e0b" strokeWidth="2" strokeLinecap="round" />
                     </svg>
                   </div>
                   <div className="stat-number">{stats.pending}</div>
@@ -558,8 +533,8 @@ const Dashboard = ({ onLogout }) => {
                 </div>
                 <div className="stat-card">
                   <div className="stat-icon orange">
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                      <path d="M12 2L15.09 8.26L22 9.27L17 14.14L18.18 21.02L12 17.77L5.82 21.02L7 14.14L2 9.27L8.91 8.26L12 2Z" stroke="#ea580c" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                      <path d="M13 2L3 14H12L11 22L21 10H12L13 2Z" stroke="#ea580c" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                     </svg>
                   </div>
                   <div className="stat-number">{stats.inProgress}</div>
@@ -568,9 +543,9 @@ const Dashboard = ({ onLogout }) => {
                 </div>
                 <div className="stat-card">
                   <div className="stat-icon green">
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                      <path d="M22 11.08V12C22 17.52 17.52 22 12 22C6.48 22 2 17.52 2 12C2 6.48 6.48 2 12 2C12.56 2 13.09 2.04 13.6 2.13" stroke="#16a34a" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                      <path d="M22 4L12 14.01L9 11.01" stroke="#16a34a" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                      <path d="M22 11.08V12C22 17.52 17.52 22 12 22C6.48 22 2 17.52 2 12C2 6.48 6.48 2 12 2" stroke="#22c55e" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                      <path d="M22 4L12 14.01L9 11.01" stroke="#22c55e" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                     </svg>
                   </div>
                   <div className="stat-number">{stats.resolved}</div>
@@ -579,10 +554,16 @@ const Dashboard = ({ onLogout }) => {
                 </div>
               </div>
 
+              {/* Two-column content */}
               <div className="two-col-row">
-                {/* Recent Reports Table */}
+                {/* Recent Reports + Chart */}
                 <div className="table-card">
-                  <h2 className="card-title">Recent Reports</h2>
+                  <h2 className="card-title">
+                    Recent Reports
+                    {incidents.length > 0 && (
+                      <span className="card-title-count">{Math.min(incidents.length, 5)} of {incidents.length}</span>
+                    )}
+                  </h2>
                   <table className="reports-table">
                     <thead>
                       <tr>
@@ -596,83 +577,95 @@ const Dashboard = ({ onLogout }) => {
                     </thead>
                     <tbody>
                       {incidents.length > 0 ? (
-                        incidents.slice(0, 5).map((incident, index) => (
-                          <tr key={incident.incidentId} className={index % 2 === 1 ? 'table-row-alt' : ''}>
+                        incidents.slice(0, 5).map((incident) => (
+                          <tr key={incident.incidentId}>
                             <td>{incident.type}</td>
                             <td>
-                              <span className={`badge badge-${incident.severity.toLowerCase()}`}>{incident.severity}</span>
+                              <span className={`badge badge-${incident.severity.toLowerCase()}`}>
+                                {incident.severity}
+                              </span>
                             </td>
-                            <td>{incident.address}</td>
-                            <td>
-                              <span className={`status-badge status-${incident.status.toLowerCase().replace(' ', '-')}`}>{incident.status}</span>
+                            <td style={{ maxWidth: '140px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {incident.address}
                             </td>
-                            <td>{formatDate(incident.createdAt)}</td>
                             <td>
-                              <button className="view-btn" onClick={() => handleViewIncident(incident)}>View</button>
+                              <span className={`status-badge status-${incident.status.toLowerCase().replace(' ', '-')}`}>
+                                {incident.status}
+                              </span>
+                            </td>
+                            <td style={{ color: 'var(--d-gray-500)', fontSize: '12.5px' }}>
+                              {formatDate(incident.createdAt)}
+                            </td>
+                            <td>
+                              <button className="view-btn" onClick={() => handleViewIncident(incident)}>
+                                View
+                              </button>
                             </td>
                           </tr>
                         ))
                       ) : (
                         <tr>
-                          <td colSpan="6">No reports submitted yet</td>
+                          <td colSpan="6">
+                            <div className="table-empty">
+                              <svg className="table-empty-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M14 2H6C5.46957 2 4.96086 2.21071 4.58579 2.58579C4.21071 2.96086 4 3.46957 4 4V20C4 20.5304 4.21071 21.0391 4.58579 21.4142C4.96086 21.7893 5.46957 22 6 22H18C18.5304 22 19.0391 21.7893 19.4142 21.4142C19.7893 21.0391 20 20.5304 20 20V8L14 2Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                              </svg>
+                              <p className="table-empty-text">No reports submitted yet</p>
+                              <p className="table-empty-sub">Use "Report Emergency" to submit your first incident.</p>
+                            </div>
+                          </td>
                         </tr>
                       )}
                     </tbody>
                   </table>
 
-                  {/* My Reports by Status Pie Chart */}
-                  <h2 className="card-title" style={{ marginTop: '24px' }}>
-                    My Reports by Status
-                  </h2>
-                  <ResponsiveContainer width="100%" height={300}>
-                    <PieChart>
-                      <Pie
-                        data={(() => {
-                          const statusCounts = {};
-                          incidents.forEach(incident => {
-                            statusCounts[incident.status] = (statusCounts[incident.status] || 0) + 1;
-                          });
-                          return Object.entries(statusCounts).map(([name, value]) => ({
-                            name,
-                            value
-                          }));
-                        })()}
-                        cx="50%"
-                        cy="50%"
-                        labelLine={false}
-                        label={({ name, percent }) =>
-                          `${name} ${(percent * 100).toFixed(0)}%`}
-                        outerRadius={100}
-                        fill="#8884d8"
-                        dataKey="value"
-                      >
-                        {(() => {
-                          const statusCounts = {};
-                          incidents.forEach(incident => {
-                            statusCounts[incident.status] = (statusCounts[incident.status] || 0) + 1;
-                          });
-                          const colors = {
-                            'Reported': '#475569',
-                            'Assigned': '#2563eb',
-                            'En Route': '#7c3aed',
-                            'On Scene': '#d97706',
-                            'Resolved': '#16a34a'
-                          };
-                          return Object.entries(statusCounts).map(([status]) => (
-                            <Cell
-                              key={`cell-${status}`}
-                              fill={colors[status] || '#64748b'}
-                            />
-                          ));
-                        })()}
-                      </Pie>
-                    </PieChart>
-                  </ResponsiveContainer>
+                  {/* Pie Chart */}
+                  {incidents.length > 0 && (
+                    <div className="chart-section">
+                      <h2 className="card-title">Reports by Status</h2>
+                      <ResponsiveContainer width="100%" height={260}>
+                        <PieChart>
+                          <Pie
+                            data={pieData}
+                            cx="50%"
+                            cy="50%"
+                            labelLine={false}
+                            label={({ name, percent }) =>
+                              `${name} ${(percent * 100).toFixed(0)}%`}
+                            outerRadius={90}
+                            dataKey="value"
+                          >
+                            {pieData.map((entry) => (
+                              <Cell
+                                key={`cell-${entry.name}`}
+                                fill={PIE_COLORS[entry.name] || '#64748b'}
+                              />
+                            ))}
+                          </Pie>
+                          <Tooltip
+                            contentStyle={{
+                              background: '#0f1a2e',
+                              border: '1px solid rgba(255,255,255,0.10)',
+                              borderRadius: '8px',
+                              color: '#e2e8f0',
+                              fontSize: '13px'
+                            }}
+                          />
+                        </PieChart>
+                      </ResponsiveContainer>
+                    </div>
+                  )}
                 </div>
 
                 {/* Notifications Panel */}
                 <div className="activity-card">
-                  <h2 className="card-title">Notifications</h2>
+                  <h2 className="card-title">
+                    <span className="link-icon"><IconBell /></span>
+                    Notifications
+                    {unreadCount > 0 && (
+                      <span className="card-title-count">{unreadCount} new</span>
+                    )}
+                  </h2>
                   <div className="activity-list">
                     {notifications.length > 0 ? (
                       notifications.map(notif => (
@@ -680,6 +673,10 @@ const Dashboard = ({ onLogout }) => {
                           key={notif.notificationId}
                           className={`activity-item ${!notif.isRead ? 'unread' : ''}`}
                           onClick={() => markNotificationRead(notif.notificationId)}
+                          role="button"
+                          tabIndex={0}
+                          onKeyDown={e => e.key === 'Enter' && markNotificationRead(notif.notificationId)}
+                          aria-label={`Notification: ${notif.message}`}
                         >
                           <div
                             className="activity-dot"
@@ -692,7 +689,14 @@ const Dashboard = ({ onLogout }) => {
                         </div>
                       ))
                     ) : (
-                      <div className="no-notifications">No notifications yet</div>
+                      <div className="no-notifications">
+                        <svg className="no-notif-icon" width="36" height="36" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                          <path d="M18 8C18 6.4087 17.3679 4.88258 16.2426 3.75736C15.1174 2.63214 13.5913 2 12 2C10.4087 2 8.88258 2.63214 7.75736 3.75736C6.63214 4.88258 6 6.4087 6 8C6 15 3 17 3 17H21C21 17 18 15 18 8Z" stroke="#64748b" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                          <path d="M13.73 21C13.5542 21.3031 13.3019 21.5547 12.9982 21.7295C12.6946 21.9044 12.3504 21.9965 12 21.9965C11.6496 21.9965 11.3054 21.9044 11.0018 21.7295C10.6982 21.5547 10.4458 21.3031 10.27 21" stroke="#64748b" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                        <p className="no-notif-text">No notifications yet</p>
+                        <p className="no-notif-sub">You'll be notified when responders update your incidents.</p>
+                      </div>
                     )}
                   </div>
                 </div>
@@ -700,71 +704,139 @@ const Dashboard = ({ onLogout }) => {
             </>
           )}
 
+          {/* ═══════════════════════════════════════════════
+              REPORT EMERGENCY TAB
+              ═══════════════════════════════════════════════ */}
           {activeTab === 'report' && (
             <div className="form-card full-width">
-              <h2 className="card-title">Report Emergency</h2>
+              {/* Form header */}
+              <div className="report-form-header">
+                <div className="report-form-icon">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M12 9V13" stroke="#f87171" strokeWidth="2" strokeLinecap="round" />
+                    <path d="M12 17H12.01" stroke="#f87171" strokeWidth="2" strokeLinecap="round" />
+                    <path d="M10.29 3.86L1.82 18C1.64 18.3 1.57 18.63 1.61 18.95C1.65 19.27 1.79 19.58 2 19.83C2.21 20.08 2.48 20.27 2.79 20.38C3.09 20.49 3.42 20.51 3.73 20.43L20.27 16.14C20.59 16.06 20.88 15.89 21.1 15.65C21.33 15.41 21.47 15.11 21.51 14.79C21.55 14.47 21.49 14.14 21.33 13.86L14.71 2.86C14.55 2.57 14.31 2.34 14.01 2.19C13.72 2.04 13.39 1.98 13.06 2.02C12.73 2.06 12.42 2.19 12.17 2.41C11.92 2.62 11.74 2.9 11.65 3.22L10.29 3.86Z" stroke="#f87171" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </div>
+                <div>
+                  <h1 className="report-form-title">Report Emergency</h1>
+                  <p className="report-form-subtitle">
+                    Provide accurate details to ensure the fastest possible response.
+                  </p>
+                </div>
+              </div>
+
               {reportFormError && <div className="error-banner">{reportFormError}</div>}
               {reportFormSuccess && <div className="success-banner">{reportFormSuccess}</div>}
-              <form className="quick-form" onSubmit={handleSubmitReport}>
-                <select
-                  className="form-input"
-                  value={reportType}
-                  onChange={(e) => setReportType(e.target.value)}
+
+              <form className="quick-form" onSubmit={handleSubmitReport} noValidate>
+                {/* Row 1: Type + Severity */}
+                <div className="form-row">
+                  <div className="form-field">
+                    <label className="form-label" htmlFor="report-type">Emergency Type <span style={{color:'#f87171'}}>*</span></label>
+                    <select
+                      id="report-type"
+                      className="form-input"
+                      value={reportType}
+                      onChange={(e) => setReportType(e.target.value)}
+                    >
+                      <option value="">Select type…</option>
+                      <option value="Road Accident">Road Accident</option>
+                      <option value="Fire">Fire</option>
+                      <option value="Medical Emergency">Medical Emergency</option>
+                      <option value="Flood">Flood</option>
+                      <option value="Other">Other</option>
+                    </select>
+                  </div>
+                  <div className="form-field">
+                    <label className="form-label" htmlFor="report-severity">Severity Level <span style={{color:'#f87171'}}>*</span></label>
+                    <select
+                      id="report-severity"
+                      className="form-input"
+                      value={reportSeverity}
+                      onChange={(e) => setReportSeverity(e.target.value)}
+                    >
+                      <option value="">Select severity…</option>
+                      <option value="Minor">Minor</option>
+                      <option value="Serious">Serious</option>
+                      <option value="Critical">Critical</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Address */}
+                <div className="form-field">
+                  <label className="form-label" htmlFor="report-address">Incident Address <span style={{color:'#f87171'}}>*</span></label>
+                  <input
+                    id="report-address"
+                    type="text"
+                    className="form-input"
+                    placeholder="Street address or landmark"
+                    value={reportAddress}
+                    onChange={(e) => setReportAddress(e.target.value)}
+                  />
+                </div>
+
+                {/* Description */}
+                <div className="form-field">
+                  <label className="form-label" htmlFor="report-description">
+                    Description <span style={{color:'#f87171'}}>*</span>
+                  </label>
+                  <textarea
+                    id="report-description"
+                    className="form-input textarea"
+                    placeholder="Describe what is happening. Include number of casualties, immediate hazards, and any other critical details…"
+                    value={reportDescription}
+                    onChange={(e) => setReportDescription(e.target.value)}
+                    rows={5}
+                  />
+                  <div className={`char-count ${reportDescription.length >= 20 ? 'char-warn' : ''}`}>
+                    {reportDescription.length} / 20 minimum characters
+                  </div>
+                </div>
+
+                {/* Photo */}
+                <div className="form-field">
+                  <label className="form-label" htmlFor="report-photo">Photo (optional)</label>
+                  <input
+                    id="report-photo"
+                    type="file"
+                    className="form-input file-input"
+                    accept="image/*"
+                    onChange={(e) => setReportPhoto(e.target.files[0])}
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  className="submit-btn"
+                  disabled={reportSubmitting}
+                  aria-busy={reportSubmitting}
                 >
-                  <option value="">Emergency Type</option>
-                  <option value="Road Accident">Road Accident</option>
-                  <option value="Fire">Fire</option>
-                  <option value="Medical Emergency">Medical Emergency</option>
-                  <option value="Flood">Flood</option>
-                  <option value="Other">Other</option>
-                </select>
-                <select
-                  className="form-input"
-                  value={reportSeverity}
-                  onChange={(e) => setReportSeverity(e.target.value)}
-                >
-                  <option value="">Severity</option>
-                  <option value="Minor">Minor</option>
-                  <option value="Serious">Serious</option>
-                  <option value="Critical">Critical</option>
-                </select>
-                <input
-                  type="text"
-                  className="form-input"
-                  placeholder="Address"
-                  value={reportAddress}
-                  onChange={(e) => setReportAddress(e.target.value)}
-                />
-                <textarea
-                  className="form-input textarea"
-                  placeholder="Description"
-                  value={reportDescription}
-                  onChange={(e) => setReportDescription(e.target.value)}
-                  rows={4}
-                />
-                <div className="char-count">{reportDescription.length}/20 characters</div>
-                <input
-                  type="file"
-                  className="form-input file-input"
-                  accept="image/*"
-                  onChange={(e) => setReportPhoto(e.target.files[0])}
-                />
-                <button type="submit" className="submit-btn" disabled={reportSubmitting}>
-                  {reportSubmitting ? 'Submitting...' : 'Submit Report'}
+                  {reportSubmitting ? 'Submitting report…' : 'Submit Emergency Report'}
                 </button>
               </form>
             </div>
           )}
 
+          {/* ═══════════════════════════════════════════════
+              MY REPORTS TAB
+              ═══════════════════════════════════════════════ */}
           {activeTab === 'myReports' && (
             <div className="table-card">
-              <h2 className="card-title">My Reports</h2>
+              <div className="page-header" style={{ marginBottom: '20px' }}>
+                <h1 className="page-title">My Reports</h1>
+                <p className="page-subtitle">All emergency incidents you have submitted.</p>
+              </div>
 
+              {/* Filters */}
               <div className="filter-bar">
+                <span className="filter-label">Filter:</span>
                 <select
                   className="form-input filter-input"
                   value={statusFilter}
                   onChange={(e) => setStatusFilter(e.target.value)}
+                  aria-label="Filter by status"
                 >
                   <option value="All">All Statuses</option>
                   <option value="Reported">Reported</option>
@@ -777,6 +849,7 @@ const Dashboard = ({ onLogout }) => {
                   className="form-input filter-input"
                   value={severityFilter}
                   onChange={(e) => setSeverityFilter(e.target.value)}
+                  aria-label="Filter by severity"
                 >
                   <option value="All">All Severities</option>
                   <option value="Minor">Minor</option>
@@ -785,6 +858,7 @@ const Dashboard = ({ onLogout }) => {
                 </select>
               </div>
 
+              {/* Table */}
               <table className="reports-table">
                 <thead>
                   <tr>
@@ -797,42 +871,84 @@ const Dashboard = ({ onLogout }) => {
                   </tr>
                 </thead>
                 <tbody>
-                  {incidents.filter(incident => {
-                    const matchesStatus = statusFilter === 'All' || incident.status === statusFilter;
-                    const matchesSeverity = severityFilter === 'All' || incident.severity === severityFilter;
-                    return matchesStatus && matchesSeverity;
-                  }).map((incident, index) => (
-                    <tr key={incident.incidentId} className={index % 2 === 1 ? 'table-row-alt' : ''}>
-                      <td>{incident.type}</td>
-                      <td>
-                        <span className={`badge badge-${incident.severity.toLowerCase()}`}>{incident.severity}</span>
-                      </td>
-                      <td>{incident.address}</td>
-                      <td>
-                        <span className={`status-badge status-${incident.status.toLowerCase().replace(' ', '-')}`}>{incident.status}</span>
-                      </td>
-                      <td>{formatDate(incident.createdAt)}</td>
-                      <td>
-                        <button className="view-btn" onClick={() => handleViewIncident(incident)}>View</button>
-                      </td>
-                    </tr>
-                  ))}
+                  {(() => {
+                    const filtered = incidents.filter(incident => {
+                      const matchesStatus = statusFilter === 'All' || incident.status === statusFilter;
+                      const matchesSeverity = severityFilter === 'All' || incident.severity === severityFilter;
+                      return matchesStatus && matchesSeverity;
+                    });
+                    if (filtered.length === 0) {
+                      return (
+                        <tr>
+                          <td colSpan="6">
+                            <div className="table-empty">
+                              <svg className="table-empty-icon" viewBox="0 0 24 24" fill="none">
+                                <circle cx="11" cy="11" r="8" stroke="currentColor" strokeWidth="2" />
+                                <path d="M21 21L16.65 16.65" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                              </svg>
+                              <p className="table-empty-text">No reports match your filters</p>
+                              <p className="table-empty-sub">Try adjusting the status or severity filters.</p>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    }
+                    return filtered.map((incident) => (
+                      <tr key={incident.incidentId}>
+                        <td>{incident.type}</td>
+                        <td>
+                          <span className={`badge badge-${incident.severity.toLowerCase()}`}>
+                            {incident.severity}
+                          </span>
+                        </td>
+                        <td style={{ maxWidth: '160px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {incident.address}
+                        </td>
+                        <td>
+                          <span className={`status-badge status-${incident.status.toLowerCase().replace(' ', '-')}`}>
+                            {incident.status}
+                          </span>
+                        </td>
+                        <td style={{ color: 'var(--d-gray-500)', fontSize: '12.5px' }}>
+                          {formatDate(incident.createdAt)}
+                        </td>
+                        <td>
+                          <button className="view-btn" onClick={() => handleViewIncident(incident)}>
+                            View
+                          </button>
+                        </td>
+                      </tr>
+                    ));
+                  })()}
                 </tbody>
               </table>
             </div>
           )}
 
+          {/* ═══════════════════════════════════════════════
+              PROFILE TAB
+              ═══════════════════════════════════════════════ */}
           {activeTab === 'profile' && (
             <div className="form-card full-width">
-              <h2 className="card-title">My Profile</h2>
               {profileError && <div className="error-banner">{profileError}</div>}
               {profileSuccess && <div className="success-banner">{profileSuccess}</div>}
+
+              {/* Avatar header */}
+              <div className="profile-header">
+                <div className="profile-avatar" aria-hidden="true">{initials}</div>
+                <div className="profile-header-info">
+                  <div className="profile-display-name">{userData?.name || 'User'}</div>
+                  <div className="profile-role-badge">Reporter</div>
+                </div>
+              </div>
+
+              {/* Profile fields */}
               <div className="profile-content">
                 {!editingProfile ? (
                   <>
                     <div className="profile-field">
-                      <span className="field-label">Name</span>
-                      <span className="field-value">{userData?.name || 'Not set'}</span>
+                      <span className="field-label">Full Name</span>
+                      <span className="field-value">{userData?.name || '—'}</span>
                     </div>
                     <div className="profile-field">
                       <span className="field-label">Email</span>
@@ -840,102 +956,154 @@ const Dashboard = ({ onLogout }) => {
                     </div>
                     <div className="profile-field">
                       <span className="field-label">Phone</span>
-                      <span className="field-value">{userData?.phone || 'Not set'}</span>
+                      <span className="field-value">{userData?.phone || '—'}</span>
                     </div>
                     <div className="profile-field">
                       <span className="field-label">Role</span>
                       <span className="field-value">Reporter</span>
                     </div>
                     <div className="profile-field">
-                      <span className="field-label">Account Created</span>
+                      <span className="field-label">Member Since</span>
                       <span className="field-value">{formatDate(userData?.createdAt)}</span>
                     </div>
-                    <button className="edit-btn" onClick={() => {
-                      setEditName(userData?.name || '');
-                      setEditPhone(userData?.phone || '');
-                      setEditingProfile(true);
-                    }}>Edit Profile</button>
+                    <div className="profile-actions">
+                      <button className="edit-btn" onClick={() => {
+                        setEditName(userData?.name || '');
+                        setEditPhone(userData?.phone || '');
+                        setEditingProfile(true);
+                      }}>
+                        Edit Profile
+                      </button>
+                    </div>
                   </>
                 ) : (
-                  <>
-                    <div className="profile-field">
-                      <span className="field-label">Name</span>
+                  <div className="profile-edit-form">
+                    <div className="profile-edit-row">
+                      <span className="field-label">Full Name</span>
                       <input
                         type="text"
                         className="form-input"
                         value={editName}
                         onChange={(e) => setEditName(e.target.value)}
+                        placeholder="Your full name"
+                        aria-label="Full name"
                       />
                     </div>
-                    <div className="profile-field">
+                    <div className="profile-edit-row">
                       <span className="field-label">Phone</span>
                       <input
-                        type="text"
+                        type="tel"
                         className="form-input"
                         value={editPhone}
                         onChange={(e) => setEditPhone(e.target.value)}
+                        placeholder="Your phone number"
+                        aria-label="Phone number"
                       />
                     </div>
-                    <div style={{ display: 'flex', gap: '12px' }}>
-                      <button className="submit-btn" onClick={handleSaveProfile}>Save Changes</button>
-                      <button className="cancel-btn" onClick={() => setEditingProfile(false)}>Cancel</button>
+                    <div className="profile-actions">
+                      <button className="submit-btn" style={{ width: 'auto', padding: '9px 20px' }} onClick={handleSaveProfile}>
+                        Save Changes
+                      </button>
+                      <button className="cancel-btn" onClick={() => setEditingProfile(false)}>
+                        Cancel
+                      </button>
                     </div>
-                  </>
+                  </div>
                 )}
               </div>
             </div>
           )}
+
         </main>
       </div>
 
-      {/* Incident Details Modal */}
+      {/* ═══════════════════════════════════════════════════
+          INCIDENT DETAIL MODAL
+          ═══════════════════════════════════════════════════ */}
       {viewIncident && (
-        <div className="modal-overlay" onClick={() => setViewIncident(null)}>
+        <div
+          className="modal-overlay"
+          onClick={() => setViewIncident(null)}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Incident Details"
+        >
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <button className="modal-close" onClick={() => setViewIncident(null)}>×</button>
-            <h2 className="modal-title">Incident Details</h2>
-            <div className="incident-details">
-              <div className="detail-row">
-                <span className="detail-label">Type</span>
-                <span className="detail-value">{viewIncident.type}</span>
-              </div>
-              <div className="detail-row">
-                <span className="detail-label">Severity</span>
-                <span className={`badge badge-${viewIncident.severity.toLowerCase()}`}>{viewIncident.severity}</span>
-              </div>
-              <div className="detail-row">
-                <span className="detail-label">Address</span>
-                <span className="detail-value">{viewIncident.address}</span>
-              </div>
-              <div className="detail-row">
-                <span className="detail-label">Description</span>
-                <span className="detail-value">{viewIncident.description}</span>
-              </div>
-              <div className="detail-row">
-                <span className="detail-label">Status</span>
-                <span className={`status-badge status-${viewIncident.status.toLowerCase().replace(' ', '-')}`}>{viewIncident.status}</span>
-              </div>
-              {viewIncident.photoUrl && (
-                <div className="detail-row">
-                  <span className="detail-label">Photo</span>
-                  <img src={viewIncident.photoUrl} alt="Incident" className="incident-photo" />
-                </div>
-              )}
+            {/* Modal header */}
+            <div className="modal-header">
+              <h2 className="modal-title">Incident Details</h2>
+              <button
+                className="modal-close"
+                onClick={() => setViewIncident(null)}
+                aria-label="Close incident details"
+              >
+                ×
+              </button>
             </div>
 
-            <h3 className="status-logs-title">Status History</h3>
-            <div className="status-logs">
-              {statusLogs.map(log => (
-                <div key={log.logId} className="status-log-item">
-                  <span className={`badge badge-${log.status.toLowerCase().replace(' ', '-')}`}>{log.status}</span>
-                  <span className="log-notes">{log.notes}</span>
-                  <span className="log-time">{formatDate(log.timestamp)}</span>
+            {/* Modal body */}
+            <div className="modal-body">
+              <div className="incident-details">
+                <div className="detail-row">
+                  <span className="detail-label">Type</span>
+                  <span className="detail-value">{viewIncident.type}</span>
                 </div>
-              ))}
+                <div className="detail-row">
+                  <span className="detail-label">Severity</span>
+                  <span className={`badge badge-${viewIncident.severity.toLowerCase()}`}>
+                    {viewIncident.severity}
+                  </span>
+                </div>
+                <div className="detail-row">
+                  <span className="detail-label">Status</span>
+                  <span className={`status-badge status-${viewIncident.status.toLowerCase().replace(' ', '-')}`}>
+                    {viewIncident.status}
+                  </span>
+                </div>
+                <div className="detail-row">
+                  <span className="detail-label">Address</span>
+                  <span className="detail-value">{viewIncident.address}</span>
+                </div>
+                <div className="detail-row" style={{ flexDirection: 'column', gap: '8px' }}>
+                  <span className="detail-label">Description</span>
+                  <span className="detail-value detail-description">{viewIncident.description}</span>
+                </div>
+                <div className="detail-row">
+                  <span className="detail-label">Reported</span>
+                  <span className="detail-value">{formatDate(viewIncident.createdAt)}</span>
+                </div>
+                {viewIncident.photoUrl && (
+                  <div className="detail-row" style={{ flexDirection: 'column', gap: '8px' }}>
+                    <span className="detail-label">Photo</span>
+                    <img src={viewIncident.photoUrl} alt="Incident" className="incident-photo" />
+                  </div>
+                )}
+              </div>
+
+              {/* Status History */}
+              <h3 className="status-logs-title">Status History</h3>
+              <div className="status-logs">
+                {statusLogs.length > 0 ? (
+                  statusLogs.map(log => (
+                    <div key={log.logId} className="status-log-item">
+                      <span className={`badge badge-${log.status.toLowerCase().replace(' ', '-')}`}>
+                        {log.status}
+                      </span>
+                      <span className="log-notes">{log.notes}</span>
+                      <span className="log-time">{formatDate(log.timestamp)}</span>
+                    </div>
+                  ))
+                ) : (
+                  <p style={{ color: 'var(--d-gray-600)', fontSize: '13.5px', padding: '8px 0' }}>
+                    No status updates yet.
+                  </p>
+                )}
+              </div>
             </div>
           </div>
         </div>
       )}
+
     </div>
   );
 };
