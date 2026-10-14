@@ -6,26 +6,39 @@ import {
   where,
   orderBy,
   onSnapshot,
-  addDoc,
+  writeBatch,
   serverTimestamp,
   doc,
   updateDoc
 } from 'firebase/firestore';
-import {
-  ref,
-  uploadBytesResumable,
-  getDownloadURL
-} from 'firebase/storage';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
+import { uploadIncidentImage, validateImageFile, ImageProcessingError } from './utils/imageUtils';
+import ViewIncidentModal from './components/reporter/ViewIncidentModal';
+import NotificationCenter from './components/notifications/NotificationCenter';
+import useNotifications from './hooks/useNotifications';
+import { queueReportedNotification } from './utils/notifications';
+import ReportEmergencyTab from './components/reporter/ReportEmergencyTab';
+import { friendlyFirestoreError } from './utils/incidentLifecycle';
+import { requestCurrentPosition } from './utils/geo';
 import './Dashboard.css';
 import backgroundImage from './images/image4.webp';
 
-const Dashboard = ({ onLogout, user, userData }) => {
+const Dashboard = ({ onLogout, user, userData, theme, onThemeChange }) => {
   const [activeTab, setActiveTab] = useState('dashboard');
 
   // Dashboard state
   const [incidents, setIncidents] = useState([]);
-  const [notifications, setNotifications] = useState([]);
+  const {
+    notifications,
+    unreadCount,
+    loading: notifLoading,
+    error: notifError,
+    actionError: notifActionError,
+    online: notifOnline,
+    fromCache: notifFromCache,
+    markRead,
+    markAllRead,
+  } = useNotifications(user, 'reporter');
   const [stats, setStats] = useState({ total: 0, pending: 0, inProgress: 0, resolved: 0 });
   const [activeIncident, setActiveIncident] = useState(null);
 
@@ -35,9 +48,15 @@ const Dashboard = ({ onLogout, user, userData }) => {
   const [reportAddress, setReportAddress] = useState('');
   const [reportDescription, setReportDescription] = useState('');
   const [reportPhoto, setReportPhoto] = useState(null);
+  const photoInputRef = useRef(null);
   const [reportFormError, setReportFormError] = useState('');
   const [reportFormSuccess, setReportFormSuccess] = useState('');
   const [reportSubmitting, setReportSubmitting] = useState(false);
+
+  // Optional GPS location (only set after the reporter explicitly asks for it)
+  const [reportCoords, setReportCoords] = useState(null);
+  const [locating, setLocating] = useState(false);
+  const [locationMessage, setLocationMessage] = useState('');
 
   // Modal state
   const [viewIncident, setViewIncident] = useState(null);
@@ -49,6 +68,7 @@ const Dashboard = ({ onLogout, user, userData }) => {
   // My Reports filters
   const [statusFilter, setStatusFilter] = useState('All');
   const [severityFilter, setSeverityFilter] = useState('All');
+  const [searchQuery, setSearchQuery] = useState('');
 
   // Profile state
   const [editingProfile, setEditingProfile] = useState(false);
@@ -74,23 +94,16 @@ const Dashboard = ({ onLogout, user, userData }) => {
   useEffect(() => {
     if (!user) return;
 
-    console.log('Fetching incidents for user:', user.uid);
-
     const q = query(
       collection(db, 'incidents'),
       where('reporterId', '==', user.uid)
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      console.log('Incidents snapshot received:', snapshot.docs.length, 'docs');
-      let data = snapshot.docs.map(doc => {
-        const docData = doc.data();
-        console.log('Incident doc:', doc.id, docData);
-        return {
-          incidentId: doc.id,
-          ...docData
-        };
-      });
+      let data = snapshot.docs.map(doc => ({
+        incidentId: doc.id,
+        ...doc.data()
+      }));
 
       // Sort manually since we removed orderBy (to avoid index issue temporarily)
       data.sort((a, b) => {
@@ -115,51 +128,50 @@ const Dashboard = ({ onLogout, user, userData }) => {
       const active = data.find(i => i.status !== 'Resolved') || null;
       setActiveIncident(active);
     }, (err) => {
+      if (!user) return;
       console.error('Error fetching incidents:', err);
-      alert('Error fetching incidents: ' + err.message);
     });
 
     return () => unsubscribe();
   }, [user]);
 
 
-  // Fetch notifications
-  useEffect(() => {
-    if (!user) return;
+  // Mark notification as read (used by the overview panel)
+  const markNotificationRead = (notificationId) => {
+    const n = notifications.find((x) => x.notificationId === notificationId);
+    if (n) markRead(n);
+  };
 
-    const q = query(
-      collection(db, 'notifications'),
-      where('userId', '==', user.uid)
-    );
+  // Open the incident a notification refers to. Reporters can only read their own
+  // incidents (enforced by firestore.rules), so this resolves against their own list.
+  const openNotification = (n) => {
+    markRead(n);
+    const incident = incidents.find((i) => i.incidentId === n.incidentId);
+    if (!incident) return false;
+    handleViewIncident(incident);
+    return true;
+  };
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const data = snapshot.docs
-        .map(doc => ({
-          notificationId: doc.id,
-          ...doc.data()
-        }))
-        .sort((a, b) => {
-          if (!a.createdAt) return 1;
-          if (!b.createdAt) return -1;
-          return b.createdAt.toMillis() - a.createdAt.toMillis();
-        })
-        .slice(0, 10);
-      setNotifications(data);
-    }, (err) => {
-      console.error('Error fetching notifications:', err);
-    });
-
-    return () => unsubscribe();
-  }, [user]);
-
-  // Mark notification as read
-  const markNotificationRead = async (notificationId) => {
+  // Capture the reporter's current location. Triggered only by a button click so the
+  // browser shows its own permission prompt; failure never blocks manual address entry.
+  const handleCaptureLocation = async () => {
+    if (locating) return;
+    setLocating(true);
+    setLocationMessage('');
     try {
-      const notificationRef = doc(db, 'notifications', notificationId);
-      await updateDoc(notificationRef, { isRead: true });
+      const pos = await requestCurrentPosition();
+      setReportCoords(pos);
     } catch (err) {
-      console.error('Error marking notification as read:', err);
+      setReportCoords(null);
+      setLocationMessage(err?.message || 'Could not get your location. Please type the address manually.');
+    } finally {
+      setLocating(false);
     }
+  };
+
+  const handleClearLocation = () => {
+    setReportCoords(null);
+    setLocationMessage('');
   };
 
   // Handle report submission
@@ -177,43 +189,39 @@ const Dashboard = ({ onLogout, user, userData }) => {
       setReportFormError('Description must be at least 20 characters');
       return;
     }
+    if (reportDescription.length > 2000) {
+      setReportFormError('Description must be at most 2000 characters');
+      return;
+    }
+    if (reportAddress.length > 300) {
+      setReportFormError('Address must be at most 300 characters');
+      return;
+    }
+    const photoCheck = validateImageFile(reportPhoto);
+    if (!photoCheck.ok) {
+      setReportFormError(photoCheck.error);
+      return;
+    }
 
+    // Guard against double-clicks / repeated submissions while a request is in flight
+    if (reportSubmitting) return;
     setReportSubmitting(true);
 
     try {
       let photoUrl = '';
 
-      // Upload photo if selected (with better error handling)
+      // Upload / compress the photo. This throws (never silently drops the photo)
+      // when the photo cannot be saved, so no report is created without it.
       if (reportPhoto) {
-        try {
-          console.log('Uploading photo...');
-          const photoRef = ref(storage, `incidents/${Date.now()}/photo.jpg`);
-          const uploadTask = uploadBytesResumable(photoRef, reportPhoto);
-
-          await new Promise((resolve, reject) => {
-            uploadTask.on(
-              'state_changed',
-              null,
-              (error) => {
-                console.error('Photo upload failed:', error);
-                reject(error);
-              },
-              async () => {
-                photoUrl = await getDownloadURL(uploadTask.snapshot.ref);
-                console.log('Photo uploaded successfully!');
-                resolve();
-              }
-            );
-          });
-        } catch (uploadErr) {
-          console.warn('Photo upload failed, continuing without photo:', uploadErr);
-          // Continue even if photo fails to upload
-        }
+        photoUrl = await uploadIncidentImage(storage, reportPhoto);
       }
 
-      console.log('Creating incident document...');
-      // Create incident document
-      const incidentRef = await addDoc(collection(db, 'incidents'), {
+      // Create the incident and its initial status-history entry atomically.
+      // The Firestore document ID is the incident's identity (no extra incidentId write).
+      // The log ID is deterministic so firestore.rules can require it at creation time.
+      const incidentRef = doc(collection(db, 'incidents'));
+      const batch = writeBatch(db);
+      batch.set(incidentRef, {
         reporterId: user.uid,
         reporterName: userData?.name || 'Unknown',
         type: reportType,
@@ -223,40 +231,48 @@ const Dashboard = ({ onLogout, user, userData }) => {
         photoUrl: photoUrl,
         status: 'Reported',
         createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp()
+        updatedAt: serverTimestamp(),
+        // Only present when the reporter chose to share their GPS location
+        ...(reportCoords
+          ? { latitude: reportCoords.latitude, longitude: reportCoords.longitude }
+          : {})
       });
+      batch.set(doc(db, 'statusLogs', `${incidentRef.id}_reported`), {
+        incidentId: incidentRef.id,
+        status: 'Reported',
+        updatedBy: user.uid,
+        notes: 'Incident reported',
+        timestamp: serverTimestamp()
+      });
+      // Alert the dispatcher channel in the same atomic write
+      queueReportedNotification(batch, db, {
+        incidentId: incidentRef.id,
+        type: reportType,
+        severity: reportSeverity
+      });
+      await batch.commit();
 
-      // Do these in the background without waiting to make the UI faster
-      (async () => {
-        try {
-          // Update the incident with its own ID for easier querying later
-          await updateDoc(incidentRef, { incidentId: incidentRef.id });
-
-          console.log('Adding status log...');
-          // Add status log
-          await addDoc(collection(db, 'statusLogs'), {
-            incidentId: incidentRef.id,
-            status: 'Reported',
-            updatedBy: user.uid,
-            notes: 'Incident reported',
-            timestamp: serverTimestamp()
-          });
-        } catch (bgErr) {
-          console.error('Background update failed:', bgErr);
-        }
-      })();
-
-      // Clear form and show success immediately
+      // Only reached when the incident AND its history entry were persisted
       setReportType('');
       setReportSeverity('');
       setReportAddress('');
       setReportDescription('');
       setReportPhoto(null);
-      setReportFormSuccess('Emergency reported successfully. Responders have been notified.');
-      console.log('Report submitted successfully!');
+      setReportCoords(null);
+      setLocationMessage('');
+      if (photoInputRef.current) {
+        photoInputRef.current.value = '';
+      }
+      setReportFormSuccess('Emergency reported successfully. Dispatchers can see your report on their live dashboard.');
     } catch (err) {
       console.error('Error submitting report:', err);
-      setReportFormError('Failed to submit report: ' + err.message);
+      setReportFormSuccess('');
+      setReportFormError(
+        'Your report was NOT submitted. ' +
+          (err instanceof ImageProcessingError
+            ? err.message
+            : friendlyFirestoreError(err, 'Please check your connection and try again.'))
+      );
     } finally {
       setReportSubmitting(false);
     }
@@ -346,9 +362,11 @@ const Dashboard = ({ onLogout, user, userData }) => {
 
   // ── SVG icon components ──────────────────────────────────
 
-  const IconShield = ({ size = 28, className = '' }) => (
+  // ── SVG icon components (18x18 to match dd/rd sidebar icons) ──
+
+  const IconShield = ({ size = 26, className = '' }) => (
     <svg className={className} width={size} height={size} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path d="M12 2L3 7V12C3 16.5 6.84 20.74 12 22C17.16 20.74 21 16.5 21 12V7L12 2Z" fill="#c0392b" />
+      <path d="M12 2L3 7V12C3 16.5 6.84 20.74 12 22C17.16 20.74 21 16.5 21 12V7L12 2Z" fill="#dc2626" />
       <path d="M12 8V14" stroke="white" strokeWidth="2" strokeLinecap="round" />
       <path d="M12 16V17" stroke="white" strokeWidth="2" strokeLinecap="round" />
     </svg>
@@ -392,7 +410,14 @@ const Dashboard = ({ onLogout, user, userData }) => {
     </svg>
   );
 
-  const unreadCount = notifications.filter(n => !n.isRead).length;
+  const IconSettings = () => (
+    <svg className="link-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="3"/>
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+    </svg>
+  );
+
+
 
   // ── JSX ─────────────────────────────────────────────────
 
@@ -422,7 +447,7 @@ const Dashboard = ({ onLogout, user, userData }) => {
 
       <div className="dashboard-main">
 
-        {/* ── SIDEBAR ───────────────────────────────────────── */}
+        {/* ── SIDEBAR — structure matches dd/rd sidebar exactly ──── */}
         <aside className="sidebar">
           <nav className="sidebar-nav">
             <button
@@ -431,7 +456,7 @@ const Dashboard = ({ onLogout, user, userData }) => {
               title="Dashboard"
             >
               <span className="link-icon"><IconHome /></span>
-              <span>Dashboard</span>
+              <span><span className="label-full">Dashboard</span><span className="label-short">Home</span></span>
             </button>
             <button
               className={`sidebar-link ${activeTab === 'report' ? 'active' : ''}`}
@@ -439,7 +464,7 @@ const Dashboard = ({ onLogout, user, userData }) => {
               title="Report Emergency"
             >
               <span className="link-icon"><IconAlert /></span>
-              <span>Report Emergency</span>
+              <span><span className="label-full">Report Emergency</span><span className="label-short">Report</span></span>
             </button>
             <button
               className={`sidebar-link ${activeTab === 'myReports' ? 'active' : ''}`}
@@ -447,7 +472,18 @@ const Dashboard = ({ onLogout, user, userData }) => {
               title="My Reports"
             >
               <span className="link-icon"><IconFile /></span>
-              <span>My Reports</span>
+              <span><span className="label-full">My Reports</span><span className="label-short">Reports</span></span>
+            </button>
+            <button
+              className={`sidebar-link ${activeTab === 'notifications' ? 'active' : ''}`}
+              onClick={() => setActiveTab('notifications')}
+              title="Notifications"
+            >
+              <span className="link-icon"><IconBell /></span>
+              <span><span className="label-full">Notifications</span><span className="label-short">Alerts</span></span>
+              {unreadCount > 0 && (
+                <span className="a24-nav-badge" aria-label={`${unreadCount} unread notifications`}>{unreadCount}</span>
+              )}
             </button>
             <button
               className={`sidebar-link ${activeTab === 'profile' ? 'active' : ''}`}
@@ -455,11 +491,19 @@ const Dashboard = ({ onLogout, user, userData }) => {
               title="My Profile"
             >
               <span className="link-icon"><IconUser /></span>
-              <span>My Profile</span>
+              <span><span className="label-full">My Profile</span><span className="label-short">Profile</span></span>
+            </button>
+            <button
+              className={`sidebar-link ${activeTab === 'settings' ? 'active' : ''}`}
+              onClick={() => setActiveTab('settings')}
+              title="Settings"
+            >
+              <span className="link-icon"><IconSettings /></span>
+              <span><span className="label-full">Settings</span><span className="label-short">Settings</span></span>
             </button>
           </nav>
           <div className="sidebar-footer">
-            Alert24 v1.0
+            Alert24 Citizen Portal
           </div>
         </aside>
 
@@ -475,7 +519,7 @@ const Dashboard = ({ onLogout, user, userData }) => {
               <div className="page-header">
                 <h1 className="page-title">Overview</h1>
                 <p className="page-subtitle">
-                  Welcome back, {userData?.name?.split(' ')[0] || 'there'}. Here's your incident summary.
+                  Monitor emergency reports, track dispatch stages, and manage incident responses in real time.
                 </p>
               </div>
 
@@ -484,21 +528,35 @@ const Dashboard = ({ onLogout, user, userData }) => {
                 <div className="banner-left">
                   {activeIncident ? (
                     <>
-                      <div className="pulsing-dot"></div>
-                      <span className="banner-text">
-                        Active — {activeIncident.type} &mdash; {activeIncident.status}
-                      </span>
+                      <div className="pulsing-dot" aria-hidden="true"></div>
+                      <div className="banner-info-group">
+                        <div className="banner-badge-row">
+                          <span className="banner-active-pill">Active Incident</span>
+                          <span className={`status-badge status-${activeIncident.status.toLowerCase().replace(/\s+/g, '-')}`}>
+                            {activeIncident.status}
+                          </span>
+                        </div>
+                        <div className="banner-incident-name">{activeIncident.type}</div>
+                        {activeIncident.address && (
+                          <div className="banner-incident-loc" title={activeIncident.address}>
+                            {activeIncident.address}
+                          </div>
+                        )}
+                      </div>
                     </>
                   ) : (
                     <>
-                      <div className="static-dot"></div>
-                      <span className="banner-text-muted">No active emergencies</span>
+                      <div className="static-dot" aria-hidden="true"></div>
+                      <div className="banner-info-group">
+                        <div className="banner-idle-title">All Systems Normal</div>
+                        <div className="banner-idle-desc">No active emergency incidents currently reported by your account.</div>
+                      </div>
                     </>
                   )}
                 </div>
                 {activeIncident ? (
                   <button className="banner-btn" onClick={() => handleViewIncident(activeIncident)}>
-                    View Status
+                    View Incident
                   </button>
                 ) : (
                   <button className="banner-btn" onClick={() => setActiveTab('report')}>
@@ -564,95 +622,139 @@ const Dashboard = ({ onLogout, user, userData }) => {
                       <span className="card-title-count">{Math.min(incidents.length, 5)} of {incidents.length}</span>
                     )}
                   </h2>
-                  <table className="reports-table">
-                    <thead>
-                      <tr>
-                        <th>Type</th>
-                        <th>Severity</th>
-                        <th>Address</th>
-                        <th>Status</th>
-                        <th>Date</th>
-                        <th>Action</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {incidents.length > 0 ? (
-                        incidents.slice(0, 5).map((incident) => (
-                          <tr key={incident.incidentId}>
-                            <td>{incident.type}</td>
-                            <td>
-                              <span className={`badge badge-${incident.severity.toLowerCase()}`}>
-                                {incident.severity}
-                              </span>
-                            </td>
-                            <td style={{ maxWidth: '140px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                              {incident.address}
-                            </td>
-                            <td>
-                              <span className={`status-badge status-${incident.status.toLowerCase().replace(' ', '-')}`}>
-                                {incident.status}
-                              </span>
-                            </td>
-                            <td style={{ color: 'var(--d-gray-500)', fontSize: '12.5px' }}>
-                              {formatDate(incident.createdAt)}
-                            </td>
-                            <td>
-                              <button className="view-btn" onClick={() => handleViewIncident(incident)}>
-                                View
-                              </button>
+                  <div className="table-wrap">
+                    <table className="reports-table">
+                      <thead>
+                        <tr>
+                          <th>Type</th>
+                          <th>Severity</th>
+                          <th>Address</th>
+                          <th>Status</th>
+                          <th>Date</th>
+                          <th>Action</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {incidents.length > 0 ? (
+                          incidents.slice(0, 5).map((incident) => (
+                            <tr key={incident.incidentId}>
+                              <td style={{ fontWeight: 500, color: 'var(--text-primary)' }}>{incident.type}</td>
+                              <td>
+                                <span className={`badge badge-${incident.severity.toLowerCase()}`}>
+                                  {incident.severity}
+                                </span>
+                              </td>
+                              <td
+                                title={incident.address}
+                                style={{ maxWidth: '160px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text-secondary)' }}
+                              >
+                                {incident.address}
+                              </td>
+                              <td>
+                                <span className={`status-badge status-${incident.status.toLowerCase().replace(' ', '-')}`}>
+                                  {incident.status}
+                                </span>
+                              </td>
+                              <td style={{ color: 'var(--text-muted)', fontSize: '12.5px', whiteSpace: 'nowrap' }}>
+                                {formatDate(incident.createdAt)}
+                              </td>
+                              <td>
+                                <button className="view-btn" onClick={() => handleViewIncident(incident)}>
+                                  View
+                                </button>
+                              </td>
+                            </tr>
+                          ))
+                        ) : (
+                          <tr>
+                            <td colSpan="6">
+                              <div className="table-empty">
+                                <svg className="table-empty-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                  <path d="M14 2H6C5.46957 2 4.96086 2.21071 4.58579 2.58579C4.21071 2.96086 4 3.46957 4 4V20C4 20.5304 4.21071 21.0391 4.58579 21.4142C4.96086 21.7893 5.46957 22 6 22H18C18.5304 22 19.0391 21.7893 19.4142 21.4142C19.7893 21.0391 20 20.5304 20 20V8L14 2Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                                </svg>
+                                <p className="table-empty-text">No reports submitted yet</p>
+                                <p className="table-empty-sub">Use "Report Emergency" to submit your first incident.</p>
+                              </div>
                             </td>
                           </tr>
-                        ))
-                      ) : (
-                        <tr>
-                          <td colSpan="6">
-                            <div className="table-empty">
-                              <svg className="table-empty-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                <path d="M14 2H6C5.46957 2 4.96086 2.21071 4.58579 2.58579C4.21071 2.96086 4 3.46957 4 4V20C4 20.5304 4.21071 21.0391 4.58579 21.4142C4.96086 21.7893 5.46957 22 6 22H18C18.5304 22 19.0391 21.7893 19.4142 21.4142C19.7893 21.0391 20 20.5304 20 20V8L14 2Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                              </svg>
-                              <p className="table-empty-text">No reports submitted yet</p>
-                              <p className="table-empty-sub">Use "Report Emergency" to submit your first incident.</p>
-                            </div>
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
 
-                  {/* Pie Chart */}
+                  {/* Reports by Status Chart */}
                   {incidents.length > 0 && (
                     <div className="chart-section">
-                      <h2 className="card-title">Reports by Status</h2>
-                      <ResponsiveContainer width="100%" height={260}>
-                        <PieChart>
-                          <Pie
-                            data={pieData}
-                            cx="50%"
-                            cy="50%"
-                            labelLine={false}
-                            label={({ name, percent }) =>
-                              `${name} ${(percent * 100).toFixed(0)}%`}
-                            outerRadius={90}
-                            dataKey="value"
-                          >
-                            {pieData.map((entry) => (
-                              <Cell
-                                key={`cell-${entry.name}`}
-                                fill={PIE_COLORS[entry.name] || '#64748b'}
+                      <div className="chart-header-row">
+                        <h2 className="card-title" style={{ margin: 0 }}>Reports by Status</h2>
+                        <span className="card-title-count">{stats.total} total</span>
+                      </div>
+                      <div className="chart-content-layout">
+                        <div className="chart-visual-wrap">
+                          <ResponsiveContainer width="100%" height={210}>
+                            <PieChart margin={{ top: 0, right: 0, bottom: 0, left: 0 }}>
+                              <Pie
+                                data={pieData}
+                                cx="50%"
+                                cy="50%"
+                                innerRadius={52}
+                                outerRadius={76}
+                                paddingAngle={3}
+                                dataKey="value"
+                              >
+                                {pieData.map((entry) => (
+                                  <Cell
+                                    key={`cell-${entry.name}`}
+                                    fill={PIE_COLORS[entry.name] || '#64748b'}
+                                    stroke="var(--bg-surface)"
+                                    strokeWidth={2}
+                                  />
+                                ))}
+                              </Pie>
+                              <Tooltip
+                                formatter={(value, name) => [
+                                  `${value} report${value !== 1 ? 's' : ''} (${stats.total > 0 ? Math.round((value / stats.total) * 100) : 0}%)`,
+                                  name
+                                ]}
+                                contentStyle={{
+                                  backgroundColor: theme === 'light' ? '#ffffff' : '#0f1a2e',
+                                  border: theme === 'light' ? '1px solid #e2e8f0' : '1px solid rgba(255,255,255,0.12)',
+                                  borderRadius: '8px',
+                                  color: theme === 'light' ? '#0f172a' : '#e2e8f0',
+                                  fontSize: '12.5px',
+                                  boxShadow: theme === 'light' ? '0 4px 14px rgba(15,23,42,0.10)' : '0 8px 24px rgba(0,0,0,0.4)'
+                                }}
                               />
-                            ))}
-                          </Pie>
-                          <Tooltip
-                            contentStyle={{
-                              background: '#0f1a2e',
-                              border: '1px solid rgba(255,255,255,0.10)',
-                              borderRadius: '8px',
-                              color: '#e2e8f0',
-                              fontSize: '13px'
-                            }}
-                          />
-                        </PieChart>
-                      </ResponsiveContainer>
+                            </PieChart>
+                          </ResponsiveContainer>
+                          <div className="chart-center-badge">
+                            <span className="chart-center-num">{stats.total}</span>
+                            <span className="chart-center-lbl">TOTAL</span>
+                          </div>
+                        </div>
+
+                        {/* Structured Legend */}
+                        <div className="chart-legend-list">
+                          {pieData.map((entry) => {
+                            const pct = stats.total > 0 ? Math.round((entry.value / stats.total) * 100) : 0;
+                            return (
+                              <div key={entry.name} className="chart-legend-row">
+                                <div className="chart-legend-left">
+                                  <span
+                                    className="chart-legend-dot"
+                                    style={{ backgroundColor: PIE_COLORS[entry.name] || '#64748b' }}
+                                  />
+                                  <span className="chart-legend-name">{entry.name}</span>
+                                </div>
+                                <div className="chart-legend-right">
+                                  <span className="chart-legend-count">{entry.value}</span>
+                                  <span className="chart-legend-pct">{pct}%</span>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -668,7 +770,7 @@ const Dashboard = ({ onLogout, user, userData }) => {
                   </h2>
                   <div className="activity-list">
                     {notifications.length > 0 ? (
-                      notifications.map(notif => (
+                      notifications.slice(0, 5).map(notif => (
                         <div
                           key={notif.notificationId}
                           className={`activity-item ${!notif.isRead ? 'unread' : ''}`}
@@ -708,115 +810,55 @@ const Dashboard = ({ onLogout, user, userData }) => {
               REPORT EMERGENCY TAB
               ═══════════════════════════════════════════════ */}
           {activeTab === 'report' && (
-            <div className="form-card full-width">
-              {/* Form header */}
-              <div className="report-form-header">
-                <div className="report-form-icon">
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M12 9V13" stroke="#f87171" strokeWidth="2" strokeLinecap="round" />
-                    <path d="M12 17H12.01" stroke="#f87171" strokeWidth="2" strokeLinecap="round" />
-                    <path d="M10.29 3.86L1.82 18C1.64 18.3 1.57 18.63 1.61 18.95C1.65 19.27 1.79 19.58 2 19.83C2.21 20.08 2.48 20.27 2.79 20.38C3.09 20.49 3.42 20.51 3.73 20.43L20.27 16.14C20.59 16.06 20.88 15.89 21.1 15.65C21.33 15.41 21.47 15.11 21.51 14.79C21.55 14.47 21.49 14.14 21.33 13.86L14.71 2.86C14.55 2.57 14.31 2.34 14.01 2.19C13.72 2.04 13.39 1.98 13.06 2.02C12.73 2.06 12.42 2.19 12.17 2.41C11.92 2.62 11.74 2.9 11.65 3.22L10.29 3.86Z" stroke="#f87171" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-                </div>
-                <div>
-                  <h1 className="report-form-title">Report Emergency</h1>
-                  <p className="report-form-subtitle">
-                    Provide accurate details to ensure the fastest possible response.
-                  </p>
-                </div>
+            <ReportEmergencyTab
+              reportFormError={reportFormError}
+              reportFormSuccess={reportFormSuccess}
+              handleSubmitReport={handleSubmitReport}
+              reportType={reportType}
+              setReportType={setReportType}
+              reportSeverity={reportSeverity}
+              setReportSeverity={setReportSeverity}
+              reportAddress={reportAddress}
+              setReportAddress={setReportAddress}
+              reportDescription={reportDescription}
+              setReportDescription={setReportDescription}
+              photoInputRef={photoInputRef}
+              setReportPhoto={setReportPhoto}
+              setReportFormError={setReportFormError}
+              setReportFormSuccess={setReportFormSuccess}
+              reportSubmitting={reportSubmitting}
+              reportCoords={reportCoords}
+              locating={locating}
+              locationMessage={locationMessage}
+              onCaptureLocation={handleCaptureLocation}
+              onClearLocation={handleClearLocation}
+            />
+          )}
+
+          {/* ═══════════════════════════════════════════════
+              NOTIFICATIONS TAB
+              ═══════════════════════════════════════════════ */}
+          {activeTab === 'notifications' && (
+            <>
+              <div className="page-header">
+                <h1 className="page-title">Notifications</h1>
+                <p className="page-subtitle">In-app updates about your emergency reports.</p>
               </div>
-
-              {reportFormError && <div className="error-banner">{reportFormError}</div>}
-              {reportFormSuccess && <div className="success-banner">{reportFormSuccess}</div>}
-
-              <form className="quick-form" onSubmit={handleSubmitReport} noValidate>
-                {/* Row 1: Type + Severity */}
-                <div className="form-row">
-                  <div className="form-field">
-                    <label className="form-label" htmlFor="report-type">Emergency Type <span style={{color:'#f87171'}}>*</span></label>
-                    <select
-                      id="report-type"
-                      className="form-input"
-                      value={reportType}
-                      onChange={(e) => setReportType(e.target.value)}
-                    >
-                      <option value="">Select type…</option>
-                      <option value="Road Accident">Road Accident</option>
-                      <option value="Fire">Fire</option>
-                      <option value="Medical Emergency">Medical Emergency</option>
-                      <option value="Flood">Flood</option>
-                      <option value="Other">Other</option>
-                    </select>
-                  </div>
-                  <div className="form-field">
-                    <label className="form-label" htmlFor="report-severity">Severity Level <span style={{color:'#f87171'}}>*</span></label>
-                    <select
-                      id="report-severity"
-                      className="form-input"
-                      value={reportSeverity}
-                      onChange={(e) => setReportSeverity(e.target.value)}
-                    >
-                      <option value="">Select severity…</option>
-                      <option value="Minor">Minor</option>
-                      <option value="Serious">Serious</option>
-                      <option value="Critical">Critical</option>
-                    </select>
-                  </div>
-                </div>
-
-                {/* Address */}
-                <div className="form-field">
-                  <label className="form-label" htmlFor="report-address">Incident Address <span style={{color:'#f87171'}}>*</span></label>
-                  <input
-                    id="report-address"
-                    type="text"
-                    className="form-input"
-                    placeholder="Street address or landmark"
-                    value={reportAddress}
-                    onChange={(e) => setReportAddress(e.target.value)}
-                  />
-                </div>
-
-                {/* Description */}
-                <div className="form-field">
-                  <label className="form-label" htmlFor="report-description">
-                    Description <span style={{color:'#f87171'}}>*</span>
-                  </label>
-                  <textarea
-                    id="report-description"
-                    className="form-input textarea"
-                    placeholder="Describe what is happening. Include number of casualties, immediate hazards, and any other critical details…"
-                    value={reportDescription}
-                    onChange={(e) => setReportDescription(e.target.value)}
-                    rows={5}
-                  />
-                  <div className={`char-count ${reportDescription.length >= 20 ? 'char-warn' : ''}`}>
-                    {reportDescription.length} / 20 minimum characters
-                  </div>
-                </div>
-
-                {/* Photo */}
-                <div className="form-field">
-                  <label className="form-label" htmlFor="report-photo">Photo (optional)</label>
-                  <input
-                    id="report-photo"
-                    type="file"
-                    className="form-input file-input"
-                    accept="image/*"
-                    onChange={(e) => setReportPhoto(e.target.files[0])}
-                  />
-                </div>
-
-                <button
-                  type="submit"
-                  className="submit-btn"
-                  disabled={reportSubmitting}
-                  aria-busy={reportSubmitting}
-                >
-                  {reportSubmitting ? 'Submitting report…' : 'Submit Emergency Report'}
-                </button>
-              </form>
-            </div>
+              <NotificationCenter
+                notifications={notifications}
+                unreadCount={unreadCount}
+                loading={notifLoading}
+                error={notifError}
+                actionError={notifActionError}
+                online={notifOnline}
+                fromCache={notifFromCache}
+                onMarkRead={markRead}
+                onMarkAllRead={markAllRead}
+                onOpen={openNotification}
+                formatDate={formatDate}
+                emptyHint="You'll be notified when responders update your incidents."
+              />
+            </>
           )}
 
           {/* ═══════════════════════════════════════════════
@@ -829,9 +871,32 @@ const Dashboard = ({ onLogout, user, userData }) => {
                 <p className="page-subtitle">All emergency incidents you have submitted.</p>
               </div>
 
-              {/* Filters */}
+              {/* Filters & Search */}
               <div className="filter-bar">
-                <span className="filter-label">Filter:</span>
+                <div className="search-input-wrap">
+                  <svg className="search-input-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="11" cy="11" r="8" />
+                    <path d="M21 21L16.65 16.65" />
+                  </svg>
+                  <input
+                    type="text"
+                    className="form-input search-input"
+                    placeholder="Search by address, type, or notes…"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    aria-label="Search reports"
+                  />
+                  {searchQuery && (
+                    <button
+                      type="button"
+                      className="search-clear-btn"
+                      onClick={() => setSearchQuery('')}
+                      aria-label="Clear search"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
                 <select
                   className="form-input filter-input"
                   value={statusFilter}
@@ -856,72 +921,115 @@ const Dashboard = ({ onLogout, user, userData }) => {
                   <option value="Serious">Serious</option>
                   <option value="Critical">Critical</option>
                 </select>
+                {(searchQuery || statusFilter !== 'All' || severityFilter !== 'All') && (
+                  <button
+                    type="button"
+                    className="view-btn clear-filters-btn"
+                    onClick={() => {
+                      setSearchQuery('');
+                      setStatusFilter('All');
+                      setSeverityFilter('All');
+                    }}
+                  >
+                    Reset
+                  </button>
+                )}
               </div>
 
               {/* Table */}
-              <table className="reports-table">
-                <thead>
-                  <tr>
-                    <th>Type</th>
-                    <th>Severity</th>
-                    <th>Address</th>
-                    <th>Status</th>
-                    <th>Date</th>
-                    <th>Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(() => {
-                    const filtered = incidents.filter(incident => {
-                      const matchesStatus = statusFilter === 'All' || incident.status === statusFilter;
-                      const matchesSeverity = severityFilter === 'All' || incident.severity === severityFilter;
-                      return matchesStatus && matchesSeverity;
-                    });
-                    if (filtered.length === 0) {
-                      return (
-                        <tr>
-                          <td colSpan="6">
-                            <div className="table-empty">
-                              <svg className="table-empty-icon" viewBox="0 0 24 24" fill="none">
-                                <circle cx="11" cy="11" r="8" stroke="currentColor" strokeWidth="2" />
-                                <path d="M21 21L16.65 16.65" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-                              </svg>
-                              <p className="table-empty-text">No reports match your filters</p>
-                              <p className="table-empty-sub">Try adjusting the status or severity filters.</p>
-                            </div>
+              <div className="table-wrap">
+                <table className="reports-table">
+                  <thead>
+                    <tr>
+                      <th>Type</th>
+                      <th>Severity</th>
+                      <th>Address</th>
+                      <th>Status</th>
+                      <th>Date</th>
+                      <th>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(() => {
+                      const q = searchQuery.trim().toLowerCase();
+                      const filtered = incidents.filter(incident => {
+                        const matchesStatus = statusFilter === 'All' || incident.status === statusFilter;
+                        const matchesSeverity = severityFilter === 'All' || incident.severity === severityFilter;
+                        const matchesSearch = !q || (
+                          (incident.type && incident.type.toLowerCase().includes(q)) ||
+                          (incident.address && incident.address.toLowerCase().includes(q)) ||
+                          (incident.description && incident.description.toLowerCase().includes(q)) ||
+                          (incident.incidentId && incident.incidentId.toLowerCase().includes(q))
+                        );
+                        return matchesStatus && matchesSeverity && matchesSearch;
+                      });
+                      if (filtered.length === 0) {
+                        return (
+                          <tr>
+                            <td colSpan="6">
+                              <div className="table-empty">
+                                <svg className="table-empty-icon" viewBox="0 0 24 24" fill="none">
+                                  <circle cx="11" cy="11" r="8" stroke="currentColor" strokeWidth="2" />
+                                  <path d="M21 21L16.65 16.65" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                                </svg>
+                                <p className="table-empty-text">No reports match your filters</p>
+                                <p className="table-empty-sub">
+                                  {searchQuery || statusFilter !== 'All' || severityFilter !== 'All'
+                                    ? 'Try adjusting your search terms or clearing your filters.'
+                                    : 'You haven\'t submitted any emergency reports yet.'}
+                                </p>
+                                {(searchQuery || statusFilter !== 'All' || severityFilter !== 'All') && (
+                                  <button
+                                    type="button"
+                                    className="view-btn"
+                                    style={{ marginTop: 10 }}
+                                    onClick={() => {
+                                      setSearchQuery('');
+                                      setStatusFilter('All');
+                                      setSeverityFilter('All');
+                                    }}
+                                  >
+                                    Clear all filters
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      }
+                      return filtered.map((incident) => (
+                        <tr key={incident.incidentId}>
+                          <td style={{ fontWeight: 500, color: 'var(--text-primary)' }}>{incident.type}</td>
+                          <td>
+                            <span className={`badge badge-${incident.severity.toLowerCase()}`}>
+                              {incident.severity}
+                            </span>
+                          </td>
+                          <td
+                            title={incident.address}
+                            style={{ maxWidth: '180px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text-secondary)' }}
+                          >
+                            {incident.address}
+                          </td>
+                          <td>
+                            <span className={`status-badge status-${incident.status.toLowerCase().replace(' ', '-')}`}>
+                              {incident.status}
+                            </span>
+                          </td>
+                          <td style={{ color: 'var(--text-muted)', fontSize: '12.5px', whiteSpace: 'nowrap' }}>
+                            {formatDate(incident.createdAt)}
+                          </td>
+                          <td>
+                            <button className="view-btn" onClick={() => handleViewIncident(incident)}>
+                              View
+                            </button>
                           </td>
                         </tr>
-                      );
-                    }
-                    return filtered.map((incident) => (
-                      <tr key={incident.incidentId}>
-                        <td>{incident.type}</td>
-                        <td>
-                          <span className={`badge badge-${incident.severity.toLowerCase()}`}>
-                            {incident.severity}
-                          </span>
-                        </td>
-                        <td style={{ maxWidth: '160px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {incident.address}
-                        </td>
-                        <td>
-                          <span className={`status-badge status-${incident.status.toLowerCase().replace(' ', '-')}`}>
-                            {incident.status}
-                          </span>
-                        </td>
-                        <td style={{ color: 'var(--d-gray-500)', fontSize: '12.5px' }}>
-                          {formatDate(incident.createdAt)}
-                        </td>
-                        <td>
-                          <button className="view-btn" onClick={() => handleViewIncident(incident)}>
-                            View
-                          </button>
-                        </td>
-                      </tr>
-                    ));
-                  })()}
-                </tbody>
-              </table>
+                      ));
+                    })()}
+                  </tbody>
+                </table>
+              </div>
             </div>
           )}
 
@@ -948,7 +1056,7 @@ const Dashboard = ({ onLogout, user, userData }) => {
                   <>
                     <div className="profile-field">
                       <span className="field-label">Full Name</span>
-                      <span className="field-value">{userData?.name || '—'}</span>
+                      <span className="field-value">{userData?.name || 'Not provided'}</span>
                     </div>
                     <div className="profile-field">
                       <span className="field-label">Email</span>
@@ -956,7 +1064,7 @@ const Dashboard = ({ onLogout, user, userData }) => {
                     </div>
                     <div className="profile-field">
                       <span className="field-label">Phone</span>
-                      <span className="field-value">{userData?.phone || '—'}</span>
+                      <span className="field-value">{userData?.phone || 'Not provided'}</span>
                     </div>
                     <div className="profile-field">
                       <span className="field-label">Role</span>
@@ -1014,96 +1122,84 @@ const Dashboard = ({ onLogout, user, userData }) => {
             </div>
           )}
 
+          {/* ═══════════════════════════════════════════════
+              SETTINGS TAB
+              ═══════════════════════════════════════════════ */}
+          {activeTab === 'settings' && (
+            <>
+              <div className="page-header">
+                <h1 className="page-title">Settings</h1>
+                <p className="page-subtitle">Manage your Alert24 account preferences.</p>
+              </div>
+
+              <div className="settings-page">
+                {/* Appearance */}
+                <div className="settings-section">
+                  <div className="settings-section-title">Appearance</div>
+                  <div className="settings-section-subtitle">
+                    Choose how Alert24 looks for you. Your preference is saved to your account and synced across devices.
+                  </div>
+                  <div className="theme-picker" role="group" aria-label="Theme selection">
+                    <button
+                      id="theme-light-btn"
+                      className={`theme-picker-btn ${theme === 'light' ? 'active' : ''}`}
+                      onClick={() => onThemeChange('light')}
+                      aria-pressed={theme === 'light'}
+                    >
+                      <span className="theme-picker-icon">☀</span>
+                      Light
+                    </button>
+                    <button
+                      id="theme-dark-btn"
+                      className={`theme-picker-btn ${theme === 'dark' ? 'active' : ''}`}
+                      onClick={() => onThemeChange('dark')}
+                      aria-pressed={theme === 'dark'}
+                    >
+                      <span className="theme-picker-icon">🌙</span>
+                      Dark
+                    </button>
+                  </div>
+                  <div className="theme-current-label">
+                    Currently using: <strong>{theme === 'dark' ? 'Dark Mode' : 'Light Mode'}</strong>
+                  </div>
+                </div>
+
+                {/* Account info */}
+                <div className="settings-section">
+                  <div className="settings-section-title">Account</div>
+                  <div className="settings-divider"></div>
+                  <div className="settings-row">
+                    <div>
+                      <div className="settings-row-label">Email address</div>
+                      <div className="settings-row-desc">Your login email</div>
+                    </div>
+                    <span className="settings-row-value">{user?.email}</span>
+                  </div>
+                  <div className="settings-row">
+                    <div>
+                      <div className="settings-row-label">Role</div>
+                      <div className="settings-row-desc">Your system access level</div>
+                    </div>
+                    <span className="settings-row-value">Reporter</span>
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+
         </main>
       </div>
 
       {/* ═══════════════════════════════════════════════════
           INCIDENT DETAIL MODAL
           ═══════════════════════════════════════════════════ */}
-      {viewIncident && (
-        <div
-          className="modal-overlay"
-          onClick={() => setViewIncident(null)}
-          role="dialog"
-          aria-modal="true"
-          aria-label="Incident Details"
-        >
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            {/* Modal header */}
-            <div className="modal-header">
-              <h2 className="modal-title">Incident Details</h2>
-              <button
-                className="modal-close"
-                onClick={() => setViewIncident(null)}
-                aria-label="Close incident details"
-              >
-                ×
-              </button>
-            </div>
-
-            {/* Modal body */}
-            <div className="modal-body">
-              <div className="incident-details">
-                <div className="detail-row">
-                  <span className="detail-label">Type</span>
-                  <span className="detail-value">{viewIncident.type}</span>
-                </div>
-                <div className="detail-row">
-                  <span className="detail-label">Severity</span>
-                  <span className={`badge badge-${viewIncident.severity.toLowerCase()}`}>
-                    {viewIncident.severity}
-                  </span>
-                </div>
-                <div className="detail-row">
-                  <span className="detail-label">Status</span>
-                  <span className={`status-badge status-${viewIncident.status.toLowerCase().replace(' ', '-')}`}>
-                    {viewIncident.status}
-                  </span>
-                </div>
-                <div className="detail-row">
-                  <span className="detail-label">Address</span>
-                  <span className="detail-value">{viewIncident.address}</span>
-                </div>
-                <div className="detail-row" style={{ flexDirection: 'column', gap: '8px' }}>
-                  <span className="detail-label">Description</span>
-                  <span className="detail-value detail-description">{viewIncident.description}</span>
-                </div>
-                <div className="detail-row">
-                  <span className="detail-label">Reported</span>
-                  <span className="detail-value">{formatDate(viewIncident.createdAt)}</span>
-                </div>
-                {viewIncident.photoUrl && (
-                  <div className="detail-row" style={{ flexDirection: 'column', gap: '8px' }}>
-                    <span className="detail-label">Photo</span>
-                    <img src={viewIncident.photoUrl} alt="Incident" className="incident-photo" />
-                  </div>
-                )}
-              </div>
-
-              {/* Status History */}
-              <h3 className="status-logs-title">Status History</h3>
-              <div className="status-logs">
-                {statusLogs.length > 0 ? (
-                  statusLogs.map(log => (
-                    <div key={log.logId} className="status-log-item">
-                      <span className={`badge badge-${log.status.toLowerCase().replace(' ', '-')}`}>
-                        {log.status}
-                      </span>
-                      <span className="log-notes">{log.notes}</span>
-                      <span className="log-time">{formatDate(log.timestamp)}</span>
-                    </div>
-                  ))
-                ) : (
-                  <p style={{ color: 'var(--d-gray-600)', fontSize: '13.5px', padding: '8px 0' }}>
-                    No status updates yet.
-                  </p>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
+      {/* ── View Incident Modal ── */}
+      <ViewIncidentModal
+        incident={viewIncident}
+        statusLogs={statusLogs}
+        formatDate={formatDate}
+        onClose={() => setViewIncident(null)}
+      />
     </div>
   );
 };

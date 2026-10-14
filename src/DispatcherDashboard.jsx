@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef, Suspense, lazy } from "react";
 import { db } from "./firebase";
 import {
   collection,
@@ -28,6 +28,21 @@ import {
 } from "recharts";
 import "./DispatcherDashboard.css";
 import backgroundImage from "./images/image4.webp";
+import ViewIncidentModal from "./components/dispatcher/ViewIncidentModal";
+import AssignIncidentModal from "./components/dispatcher/AssignIncidentModal";
+import ReportsTab from "./components/dispatcher/ReportsTab";
+import NotificationCenter from "./components/notifications/NotificationCenter";
+import useNotifications from "./hooks/useNotifications";
+import { NOTIFICATION_TYPES } from "./utils/notifications";
+import {
+  isResolvedToday,
+  isIncidentAssignable,
+  isResponderAssignable,
+  friendlyFirestoreError,
+} from "./utils/incidentLifecycle";
+
+// Leaflet is loaded on demand: only dispatchers who open the map tab download it.
+const IncidentMap = lazy(() => import("./components/map/IncidentMap"));
 
 const formatDate = (timestamp) => {
   if (!timestamp) return "";
@@ -42,17 +57,6 @@ const formatDate = (timestamp) => {
   const hours = String(date.getHours()).padStart(2, "0");
   const minutes = String(date.getMinutes()).padStart(2, "0");
   return `${day} ${month} ${year} ${hours}:${minutes}`;
-};
-
-const isToday = (timestamp) => {
-  if (!timestamp) return false;
-  const today = new Date();
-  const date = timestamp.toDate();
-  return (
-    date.getDate() === today.getDate() &&
-    date.getMonth() === today.getMonth() &&
-    date.getFullYear() === today.getFullYear()
-  );
 };
 
 /* ── Reusable SVG icon components ───────────────────────── */
@@ -91,6 +95,13 @@ const IconFile = () => (
   </svg>
 );
 
+const IconMap = () => (
+  <svg className="dd-sidebar-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/>
+    <circle cx="12" cy="10" r="3"/>
+  </svg>
+);
+
 const IconBell = () => (
   <svg className="dd-sidebar-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M18 8.5C18 5.46 15.54 3 12.5 3S7 5.46 7 8.5c0 3-1.5 5-1.5 5h13s-1.5-2-1.5-5zM15 17a3 3 0 11-6 0"/>
@@ -100,6 +111,13 @@ const IconBell = () => (
 const IconCheck = () => (
   <svg width="10" height="10" viewBox="0 0 12 12" fill="none">
     <path d="M2 6L5 9L10 3" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+  </svg>
+);
+
+const IconSettingsGear = () => (
+  <svg className="dd-sidebar-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="12" r="3"/>
+    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
   </svg>
 );
 
@@ -122,13 +140,24 @@ const StatusBadge = ({ status }) => {
 /* ═══════════════════════════════════════════════════════════
    DISPATCHER DASHBOARD COMPONENT
    ═══════════════════════════════════════════════════════════ */
-const DispatcherDashboard = ({ onLogout, user, userData }) => {
+const DispatcherDashboard = ({ onLogout, user, userData, theme, onThemeChange }) => {
   const [activeTab, setActiveTab] = useState("overview");
 
   const [incidents, setIncidents] = useState([]);
   const [responders, setResponders] = useState([]);
   const [statusLogs, setStatusLogs] = useState([]);
-  const [notifications, setNotifications] = useState([]);
+  const {
+    notifications,
+    unreadCount,
+    loading: notifLoading,
+    error: notifError,
+    actionError: notifActionError,
+    online: notifOnline,
+    fromCache: notifFromCache,
+    markRead,
+    markAllRead,
+  } = useNotifications(user, "dispatcher");
+  const [assigning, setAssigning] = useState(false);
 
   const [viewIncident, setViewIncident] = useState(null);
   const [assignIncident, setAssignIncident] = useState(null);
@@ -141,6 +170,14 @@ const DispatcherDashboard = ({ onLogout, user, userData }) => {
   const [severityFilter, setSeverityFilter] = useState("All");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
+
+  /* Live Incidents & Responders filters */
+  const [liveSearchQuery, setLiveSearchQuery] = useState("");
+  const [liveStatusFilter, setLiveStatusFilter] = useState("All");
+  const [liveSeverityFilter, setLiveSeverityFilter] = useState("All");
+  const [responderSearchQuery, setResponderSearchQuery] = useState("");
+  const [responderAvailFilter, setResponderAvailFilter] = useState("All");
+  const [reportsSearchQuery, setReportsSearchQuery] = useState("");
 
   /* ── Firestore listeners ── */
   useEffect(() => {
@@ -182,31 +219,23 @@ const DispatcherDashboard = ({ onLogout, user, userData }) => {
     return () => unsubscribe();
   }, [user]);
 
-  useEffect(() => {
-    if (!user) return;
-    const q = query(collection(db, "notifications"), where("userId", "==", user.uid));
-    const unsubscribe = onSnapshot(
-      q,
-      (snapshot) => {
-        const data = snapshot.docs
-          .map((doc) => ({ notificationId: doc.id, ...doc.data() }))
-          .sort((a, b) => {
-            if (!a.createdAt) return 1;
-            if (!b.createdAt) return -1;
-            return b.createdAt.toMillis() - a.createdAt.toMillis();
-          });
-        setNotifications(data);
-      },
-      (err) => {
-        console.error("Error fetching notifications:", err);
-        setErrorBanner("Error loading notifications: " + err.message);
-      }
-    );
-    return () => unsubscribe();
-  }, [user]);
-
   /* ── Helpers ── */
+  const statusLogsUnsubRef = useRef(null);
+
+  useEffect(() => {
+    return () => {
+      if (statusLogsUnsubRef.current) {
+        statusLogsUnsubRef.current();
+        statusLogsUnsubRef.current = null;
+      }
+    };
+  }, []);
+
   const fetchStatusLogsForIncident = (incidentId) => {
+    if (statusLogsUnsubRef.current) {
+      statusLogsUnsubRef.current();
+      statusLogsUnsubRef.current = null;
+    }
     const q = query(collection(db, "statusLogs"), where("incidentId", "==", incidentId));
     const unsubscribe = onSnapshot(
       q,
@@ -221,10 +250,12 @@ const DispatcherDashboard = ({ onLogout, user, userData }) => {
         setStatusLogs(logs);
       },
       (err) => {
+        if (!user) return;
         console.error("Error fetching status logs:", err);
         setErrorBanner("Error loading status logs: " + err.message);
       }
     );
+    statusLogsUnsubRef.current = unsubscribe;
     return unsubscribe;
   };
 
@@ -235,6 +266,25 @@ const DispatcherDashboard = ({ onLogout, user, userData }) => {
 
   const handleAssignIncident = async () => {
     if (!assignIncident || !selectedResponder) return;
+    if (assigning) return; // ignore repeated taps while the assignment is in flight
+
+    // Fast client-side eligibility check against the latest live data. The authoritative
+    // check is enforced by firestore.rules, which also rejects a stale/duplicate assignment.
+    const liveIncident = incidents.find((i) => i.incidentId === assignIncident.incidentId);
+    const liveResponder = responders.find((r) => r.uid === selectedResponder.uid);
+    if (!isIncidentAssignable(liveIncident)) {
+      setErrorBanner("This incident is no longer awaiting assignment.");
+      setAssignIncident(null);
+      setSelectedResponder(null);
+      return;
+    }
+    if (!isResponderAssignable(liveResponder)) {
+      setErrorBanner("The selected responder is no longer available. Please choose another responder.");
+      setSelectedResponder(null);
+      return;
+    }
+
+    setAssigning(true);
     try {
       const batch = writeBatch(db);
 
@@ -265,6 +315,7 @@ const DispatcherDashboard = ({ onLogout, user, userData }) => {
       batch.set(responderNotifRef, {
         userId: selectedResponder.uid,
         incidentId: assignIncident.incidentId,
+        type: NOTIFICATION_TYPES.ASSIGNED,
         message: `New emergency assigned: ${assignIncident.type} at ${assignIncident.address}`,
         isRead: false,
         createdAt: serverTimestamp(),
@@ -274,6 +325,7 @@ const DispatcherDashboard = ({ onLogout, user, userData }) => {
       batch.set(reporterNotifRef, {
         userId: assignIncident.reporterId,
         incidentId: assignIncident.incidentId,
+        type: NOTIFICATION_TYPES.ASSIGNED,
         message: "A responder has been assigned to your emergency",
         isRead: false,
         createdAt: serverTimestamp(),
@@ -287,28 +339,32 @@ const DispatcherDashboard = ({ onLogout, user, userData }) => {
       setSelectedResponder(null);
     } catch (err) {
       console.error("Error assigning incident:", err);
-      setErrorBanner("Error assigning responder: " + err.message);
+      setErrorBanner("Error assigning responder: " + friendlyFirestoreError(err));
+    } finally {
+      setAssigning(false);
     }
   };
 
-  const handleMarkNotificationRead = async (notification) => {
-    if (notification.isRead) return;
-    try {
-      const ref = doc(db, "notifications", notification.notificationId);
-      await updateDoc(ref, { isRead: true });
-    } catch (err) {
-      console.error("Error marking notification as read:", err);
-      setErrorBanner("Error updating notification: " + err.message);
-    }
+  // Open the incident a notification refers to. Dispatchers can read every incident.
+  const openNotification = (notification) => {
+    markRead(notification);
+    const incident = incidents.find((i) => i.incidentId === notification.incidentId);
+    if (!incident) return false;
+    handleViewIncident(incident);
+    return true;
   };
 
   const handleToggleResponderAvailability = async (responder) => {
+    if (!responder.isAvailable && responder.activeIncidentId) {
+      setErrorBanner("This responder has an active assignment and cannot be marked available yet.");
+      return;
+    }
     try {
       const responderRef = doc(db, "users", responder.uid);
       await updateDoc(responderRef, { isAvailable: !responder.isAvailable });
     } catch (err) {
       console.error("Error updating responder availability:", err);
-      setErrorBanner("Error updating responder: " + err.message);
+      setErrorBanner("Error updating responder: " + friendlyFirestoreError(err));
     }
   };
 
@@ -319,7 +375,7 @@ const DispatcherDashboard = ({ onLogout, user, userData }) => {
     active: incidents.filter(
       (i) => i.status === "Assigned" || i.status === "En Route" || i.status === "On Scene"
     ).length,
-    resolvedToday: incidents.filter((i) => i.status === "Resolved" && isToday(i.createdAt)).length,
+    resolvedToday: incidents.filter((i) => isResolvedToday(i)).length,
     totalResponders: responders.length,
   };
 
@@ -397,7 +453,14 @@ const DispatcherDashboard = ({ onLogout, user, userData }) => {
         const incidentDate = i.createdAt?.toDate();
         if (incidentDate && incidentDate > toDate) matchesDate = false;
       }
-      return matchesStatus && matchesSeverity && matchesDate;
+      const q = reportsSearchQuery.trim().toLowerCase();
+      const matchesSearch = !q || (
+        (i.type && i.type.toLowerCase().includes(q)) ||
+        (i.address && i.address.toLowerCase().includes(q)) ||
+        (i.reporterName && i.reporterName.toLowerCase().includes(q)) ||
+        (i.incidentId && i.incidentId.toLowerCase().includes(q))
+      );
+      return matchesStatus && matchesSeverity && matchesDate && matchesSearch;
     });
 
   /* ── Exports ── */
@@ -437,14 +500,21 @@ const DispatcherDashboard = ({ onLogout, user, userData }) => {
     document.body.removeChild(link);
   };
 
-  const unreadCount = notifications.filter((n) => !n.isRead).length;
+
 
   /* ── Shared chart tooltip style ── */
   const chartTooltipStyle = {
-    contentStyle: { backgroundColor: "#0f1a2e", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "6px" },
-    labelStyle: { color: "#e2e8f0", fontWeight: 600, fontSize: 12 },
-    itemStyle: { color: "#94a3b8", fontSize: 12 },
+    contentStyle: {
+      backgroundColor: theme === "light" ? "#ffffff" : "#0f1a2e",
+      border: theme === "light" ? "1px solid #e2e8f0" : "1px solid rgba(255,255,255,0.1)",
+      borderRadius: "6px",
+      boxShadow: theme === "light" ? "0 4px 14px rgba(15,23,42,0.10)" : "none"
+    },
+    labelStyle: { color: theme === "light" ? "#0f172a" : "#e2e8f0", fontWeight: 600, fontSize: 12 },
+    itemStyle: { color: theme === "light" ? "#334155" : "#94a3b8", fontSize: 12 },
   };
+  const gridStroke = theme === "light" ? "#e2e8f0" : "rgba(255,255,255,0.05)";
+  const axisStroke = theme === "light" ? "#94a3b8" : "#64748b";
 
   /* ── Incident table rows (shared between Overview and Live Incidents) ── */
   const renderIncidentRows = (list) => {
@@ -462,14 +532,17 @@ const DispatcherDashboard = ({ onLogout, user, userData }) => {
           key={incident.incidentId}
           className={isCriticalUnassigned ? "dd-row-critical" : ""}
         >
-          <td style={{ fontWeight: 500, color: "#e2e8f0" }}>{incident.type}</td>
+          <td style={{ fontWeight: 500, color: "var(--text-primary)" }}>{incident.type}</td>
           <td><SeverityBadge severity={incident.severity} /></td>
-          <td style={{ color: "#94a3b8" }}>{incident.reporterName}</td>
-          <td style={{ color: "#94a3b8", maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          <td style={{ color: "var(--text-secondary)" }}>{incident.reporterName || "Anonymous"}</td>
+          <td
+            title={incident.address}
+            style={{ color: "var(--text-secondary)", maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+          >
             {incident.address}
           </td>
           <td><StatusBadge status={incident.status} /></td>
-          <td style={{ color: "#64748b", fontSize: 12 }}>{formatDate(incident.createdAt)}</td>
+          <td style={{ color: "var(--text-muted)", fontSize: 12, whiteSpace: "nowrap" }}>{formatDate(incident.createdAt)}</td>
           <td>
             {incident.status === "Reported" ? (
               <button
@@ -541,26 +614,31 @@ const DispatcherDashboard = ({ onLogout, user, userData }) => {
         <aside className="dd-sidebar">
           <nav className="dd-sidebar-nav">
             {[
-              { id: "overview",          label: "Overview",          Icon: IconHome },
-              { id: "live-incidents",    label: "Live Incidents",    Icon: IconFlame },
-              { id: "manage-responders", label: "Manage Responders", Icon: IconUsers },
-              { id: "reports",           label: "Reports",           Icon: IconFile },
-              { id: "notifications",     label: "Notifications",     Icon: IconBell },
-            ].map(({ id, label, Icon }) => (
+              { id: "overview",          label: "Overview",          shortLabel: "Overview",  Icon: IconHome },
+              { id: "live-incidents",    label: "Live Incidents",    shortLabel: "Incidents", Icon: IconFlame },
+              { id: "incident-map",      label: "Incident Map",      shortLabel: "Map",       Icon: IconMap },
+              { id: "manage-responders", label: "Manage Responders", shortLabel: "Units",     Icon: IconUsers },
+              { id: "reports",           label: "Reports",           shortLabel: "Reports",   Icon: IconFile },
+              { id: "notifications",     label: "Notifications",     shortLabel: "Alerts",    Icon: IconBell },
+              { id: "settings",          label: "Settings",          shortLabel: "Settings",  Icon: IconSettingsGear },
+            ].map(({ id, label, shortLabel, Icon }) => (
               <button
                 key={id}
                 className={`dd-sidebar-btn ${activeTab === id ? "active" : ""}`}
                 onClick={() => setActiveTab(id)}
               >
                 <Icon />
-                <span className="dd-sidebar-label">{label}</span>
+                <span className="dd-sidebar-label">
+                  <span className="dd-label-full">{label}</span>
+                  <span className="dd-label-short">{shortLabel}</span>
+                </span>
                 {id === "notifications" && unreadCount > 0 && (
                   <span className="dd-notif-badge">{unreadCount}</span>
                 )}
               </button>
             ))}
           </nav>
-          <div className="dd-sidebar-footer">Alert24 v1.0</div>
+          <div className="dd-sidebar-footer">Alert24 Dispatch Ops</div>
         </aside>
 
         {/* ── Main Content ── */}
@@ -670,9 +748,9 @@ const DispatcherDashboard = ({ onLogout, user, userData }) => {
                   </div>
                   <ResponsiveContainer width="100%" height={240}>
                     <BarChart data={analyticsData.incidentsPerDay} margin={{ top: 4, right: 4, bottom: 0, left: -16 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-                      <XAxis dataKey="day" stroke="#64748b" tick={{ fontSize: 11 }} />
-                      <YAxis stroke="#64748b" tick={{ fontSize: 11 }} />
+                      <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} />
+                      <XAxis dataKey="day" stroke={axisStroke} tick={{ fontSize: 11 }} />
+                      <YAxis stroke={axisStroke} tick={{ fontSize: 11 }} />
                       <Tooltip {...chartTooltipStyle} />
                       <Bar dataKey="count" fill="#2563eb" radius={[3, 3, 0, 0]} />
                     </BarChart>
@@ -680,28 +758,68 @@ const DispatcherDashboard = ({ onLogout, user, userData }) => {
                 </div>
 
                 {/* Incidents By Type */}
-                <div className="dd-card" style={{ marginBottom: 0 }}>
+                <div className="dd-card dd-chart-card" style={{ marginBottom: 0 }}>
                   <div className="dd-card-header">
                     <h3 className="dd-card-title">Incidents By Type</h3>
+                    <span className="dd-card-meta">{stats.total} total</span>
                   </div>
-                  <ResponsiveContainer width="100%" height={240}>
-                    <PieChart>
-                      <Pie
-                        data={analyticsData.incidentsByType}
-                        cx="50%"
-                        cy="50%"
-                        labelLine={false}
-                        label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                        outerRadius={88}
-                        dataKey="value"
-                      >
-                        {analyticsData.incidentsByType.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={TYPE_COLORS[entry.name] || "#64748b"} />
-                        ))}
-                      </Pie>
-                      <Tooltip {...chartTooltipStyle} />
-                    </PieChart>
-                  </ResponsiveContainer>
+                  {analyticsData.incidentsByType.length > 0 ? (
+                    <div className="dd-pie-chart-wrap">
+                      <div className="dd-donut-container">
+                        <ResponsiveContainer width="100%" height={170}>
+                          <PieChart margin={{ top: 0, right: 0, bottom: 0, left: 0 }}>
+                            <Pie
+                              data={analyticsData.incidentsByType}
+                              cx="50%"
+                              cy="50%"
+                              innerRadius={46}
+                              outerRadius={68}
+                              paddingAngle={3}
+                              dataKey="value"
+                            >
+                              {analyticsData.incidentsByType.map((entry, index) => (
+                                <Cell
+                                  key={`cell-${index}`}
+                                  fill={TYPE_COLORS[entry.name] || "#64748b"}
+                                  stroke="var(--bg-surface)"
+                                  strokeWidth={2}
+                                />
+                              ))}
+                            </Pie>
+                            <Tooltip
+                              formatter={(value, name) => [
+                                `${value} incident${value !== 1 ? 's' : ''} (${stats.total > 0 ? Math.round((value / stats.total) * 100) : 0}%)`,
+                                name
+                              ]}
+                              {...chartTooltipStyle}
+                            />
+                          </PieChart>
+                        </ResponsiveContainer>
+                        <div className="dd-donut-center">
+                          <span className="dd-donut-num">{stats.total}</span>
+                          <span className="dd-donut-lbl">TOTAL</span>
+                        </div>
+                      </div>
+                      <div className="dd-chart-legend">
+                        {analyticsData.incidentsByType.map((entry) => {
+                          const pct = stats.total > 0 ? Math.round((entry.value / stats.total) * 100) : 0;
+                          return (
+                            <div key={entry.name} className="dd-chart-legend-item">
+                              <span
+                                className="dd-chart-legend-dot"
+                                style={{ backgroundColor: TYPE_COLORS[entry.name] || "#64748b" }}
+                              />
+                              <span className="dd-chart-legend-name">{entry.name}</span>
+                              <span className="dd-chart-legend-val">{entry.value}</span>
+                              <span className="dd-chart-legend-pct">({pct}%)</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="dd-chart-empty">No incidents recorded yet</div>
+                  )}
                 </div>
 
                 {/* Incidents By Severity */}
@@ -711,9 +829,9 @@ const DispatcherDashboard = ({ onLogout, user, userData }) => {
                   </div>
                   <ResponsiveContainer width="100%" height={240}>
                     <BarChart data={analyticsData.incidentsBySeverity} margin={{ top: 4, right: 4, bottom: 0, left: -16 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-                      <XAxis dataKey="name" stroke="#64748b" tick={{ fontSize: 11 }} />
-                      <YAxis stroke="#64748b" tick={{ fontSize: 11 }} />
+                      <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} />
+                      <XAxis dataKey="name" stroke={axisStroke} tick={{ fontSize: 11 }} />
+                      <YAxis stroke={axisStroke} tick={{ fontSize: 11 }} />
                       <Tooltip {...chartTooltipStyle} />
                       <Bar dataKey="value" radius={[3, 3, 0, 0]}>
                         {analyticsData.incidentsBySeverity.map((entry, index) => (
@@ -732,9 +850,9 @@ const DispatcherDashboard = ({ onLogout, user, userData }) => {
                   </div>
                   <ResponsiveContainer width="100%" height={240}>
                     <LineChart data={analyticsData.responseTimeTrend} margin={{ top: 4, right: 4, bottom: 0, left: -16 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-                      <XAxis dataKey="day" stroke="#64748b" tick={{ fontSize: 11 }} />
-                      <YAxis stroke="#64748b" tick={{ fontSize: 11 }} />
+                      <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} />
+                      <XAxis dataKey="day" stroke={axisStroke} tick={{ fontSize: 11 }} />
+                      <YAxis stroke={axisStroke} tick={{ fontSize: 11 }} />
                       <Tooltip {...chartTooltipStyle} />
                       <Line type="monotone" dataKey="avgTime" stroke="#22c55e" strokeWidth={2} dot={{ fill: "#22c55e", r: 3 }} />
                     </LineChart>
@@ -752,12 +870,77 @@ const DispatcherDashboard = ({ onLogout, user, userData }) => {
               <div className="dd-page-header">
                 <h1 className="dd-page-title">Live Incidents</h1>
                 <p className="dd-page-subtitle">
-                  {incidents.length} total &nbsp;·&nbsp;
-                  <span style={{ color: "#ef4444" }}>{stats.unassigned} unassigned</span> &nbsp;·&nbsp;
-                  <span style={{ color: "#f97316" }}>{stats.active} active</span>
+                  {incidents.length} total incidents &nbsp;·&nbsp;
+                  <span style={{ color: theme === "light" ? "#b91c1c" : "#ef4444", fontWeight: 600 }}>{stats.unassigned} unassigned</span> &nbsp;·&nbsp;
+                  <span style={{ color: theme === "light" ? "#c2410c" : "#f97316", fontWeight: 600 }}>{stats.active} in progress</span>
                 </p>
               </div>
               <div className="dd-card">
+                {/* Search & Filter Bar */}
+                <div className="dd-filter-bar">
+                  <div className="dd-search-wrap">
+                    <svg className="dd-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <circle cx="11" cy="11" r="8" />
+                      <path d="M21 21L16.65 16.65" />
+                    </svg>
+                    <input
+                      type="text"
+                      className="dd-input dd-search-input"
+                      placeholder="Search by location, type, reporter…"
+                      value={liveSearchQuery}
+                      onChange={(e) => setLiveSearchQuery(e.target.value)}
+                      aria-label="Search live incidents"
+                    />
+                    {liveSearchQuery && (
+                      <button
+                        type="button"
+                        className="dd-search-clear"
+                        onClick={() => setLiveSearchQuery("")}
+                        aria-label="Clear search"
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
+                  <select
+                    className="dd-select"
+                    value={liveStatusFilter}
+                    onChange={(e) => setLiveStatusFilter(e.target.value)}
+                    aria-label="Filter by status"
+                  >
+                    <option value="All">All Statuses</option>
+                    <option value="Reported">Reported</option>
+                    <option value="Assigned">Assigned</option>
+                    <option value="En Route">En Route</option>
+                    <option value="On Scene">On Scene</option>
+                    <option value="Resolved">Resolved</option>
+                  </select>
+                  <select
+                    className="dd-select"
+                    value={liveSeverityFilter}
+                    onChange={(e) => setLiveSeverityFilter(e.target.value)}
+                    aria-label="Filter by severity"
+                  >
+                    <option value="All">All Severities</option>
+                    <option value="Critical">Critical</option>
+                    <option value="Serious">Serious</option>
+                    <option value="Minor">Minor</option>
+                  </select>
+                  {(liveSearchQuery || liveStatusFilter !== "All" || liveSeverityFilter !== "All") && (
+                    <button
+                      type="button"
+                      className="dd-btn dd-btn-secondary dd-btn-sm"
+                      onClick={() => {
+                        setLiveSearchQuery("");
+                        setLiveStatusFilter("All");
+                        setLiveSeverityFilter("All");
+                      }}
+                    >
+                      Reset
+                    </button>
+                  )}
+                </div>
+
                 <div className="dd-table-wrap">
                   <table className="dd-table">
                     <thead>
@@ -772,7 +955,21 @@ const DispatcherDashboard = ({ onLogout, user, userData }) => {
                       </tr>
                     </thead>
                     <tbody>
-                      {renderIncidentRows(incidents)}
+                      {(() => {
+                        const q = liveSearchQuery.trim().toLowerCase();
+                        const filtered = incidents.filter(i => {
+                          const matchesStatus = liveStatusFilter === "All" || i.status === liveStatusFilter;
+                          const matchesSeverity = liveSeverityFilter === "All" || i.severity === liveSeverityFilter;
+                          const matchesSearch = !q || (
+                            (i.type && i.type.toLowerCase().includes(q)) ||
+                            (i.address && i.address.toLowerCase().includes(q)) ||
+                            (i.reporterName && i.reporterName.toLowerCase().includes(q)) ||
+                            (i.incidentId && i.incidentId.toLowerCase().includes(q))
+                          );
+                          return matchesStatus && matchesSeverity && matchesSearch;
+                        });
+                        return renderIncidentRows(filtered);
+                      })()}
                     </tbody>
                   </table>
                 </div>
@@ -788,11 +985,63 @@ const DispatcherDashboard = ({ onLogout, user, userData }) => {
               <div className="dd-page-header">
                 <h1 className="dd-page-title">Manage Responders</h1>
                 <p className="dd-page-subtitle">
-                  {responders.length} total &nbsp;·&nbsp;
-                  <span style={{ color: "#4ade80" }}>{responders.filter(r => r.isAvailable).length} available</span>
+                  {responders.length} registered responders &nbsp;·&nbsp;
+                  <span style={{ color: theme === "light" ? "#15803d" : "#4ade80", fontWeight: 600 }}>
+                    {responders.filter(r => r.isAvailable).length} currently available
+                  </span>
                 </p>
               </div>
               <div className="dd-card">
+                {/* Search & Filter Bar */}
+                <div className="dd-filter-bar">
+                  <div className="dd-search-wrap">
+                    <svg className="dd-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <circle cx="11" cy="11" r="8" />
+                      <path d="M21 21L16.65 16.65" />
+                    </svg>
+                    <input
+                      type="text"
+                      className="dd-input dd-search-input"
+                      placeholder="Search responder name or speciality…"
+                      value={responderSearchQuery}
+                      onChange={(e) => setResponderSearchQuery(e.target.value)}
+                      aria-label="Search responders"
+                    />
+                    {responderSearchQuery && (
+                      <button
+                        type="button"
+                        className="dd-search-clear"
+                        onClick={() => setResponderSearchQuery("")}
+                        aria-label="Clear search"
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
+                  <select
+                    className="dd-select"
+                    value={responderAvailFilter}
+                    onChange={(e) => setResponderAvailFilter(e.target.value)}
+                    aria-label="Filter by availability"
+                  >
+                    <option value="All">All Availabilities</option>
+                    <option value="Available">Available Only</option>
+                    <option value="Unavailable">Unavailable Only</option>
+                  </select>
+                  {(responderSearchQuery || responderAvailFilter !== "All") && (
+                    <button
+                      type="button"
+                      className="dd-btn dd-btn-secondary dd-btn-sm"
+                      onClick={() => {
+                        setResponderSearchQuery("");
+                        setResponderAvailFilter("All");
+                      }}
+                    >
+                      Reset
+                    </button>
+                  )}
+                </div>
+
                 <div className="dd-table-wrap">
                   <table className="dd-table">
                     <thead>
@@ -807,25 +1056,39 @@ const DispatcherDashboard = ({ onLogout, user, userData }) => {
                       </tr>
                     </thead>
                     <tbody>
-                      {responders.length === 0 ? (
-                        <tr className="dd-empty-row">
-                          <td colSpan="7">No responder accounts found</td>
-                        </tr>
-                      ) : (
-                        responders.map((responder) => (
+                      {(() => {
+                        const q = responderSearchQuery.trim().toLowerCase();
+                        const filtered = responders.filter(r => {
+                          const matchesAvail = responderAvailFilter === "All" ||
+                            (responderAvailFilter === "Available" ? r.isAvailable : !r.isAvailable);
+                          const matchesSearch = !q || (
+                            (r.name && r.name.toLowerCase().includes(q)) ||
+                            (r.speciality && r.speciality.toLowerCase().includes(q)) ||
+                            (r.email && r.email.toLowerCase().includes(q))
+                          );
+                          return matchesAvail && matchesSearch;
+                        });
+                        if (filtered.length === 0) {
+                          return (
+                            <tr className="dd-empty-row">
+                              <td colSpan="7">No responders match your criteria</td>
+                            </tr>
+                          );
+                        }
+                        return filtered.map((responder) => (
                           <tr key={responder.uid}>
-                            <td style={{ fontWeight: 600, color: "#e2e8f0" }}>{responder.name}</td>
-                            <td style={{ color: "#94a3b8", fontSize: 13 }}>{responder.email}</td>
-                            <td style={{ color: "#94a3b8" }}>{responder.phone || "—"}</td>
-                            <td style={{ color: "#94a3b8" }}>{responder.speciality || "—"}</td>
+                            <td style={{ fontWeight: 600, color: "var(--text-primary)" }}>{responder.name}</td>
+                            <td style={{ color: "var(--text-secondary)", fontSize: 13 }}>{responder.email}</td>
+                            <td style={{ color: "var(--text-secondary)" }}>{responder.phone || "Not provided"}</td>
+                            <td style={{ color: "var(--text-secondary)" }}>{responder.speciality || "General"}</td>
                             <td>
                               <span className={`dd-badge ${responder.isAvailable ? "dd-badge-available" : "dd-badge-unavailable"}`}>
                                 {responder.isAvailable ? "Available" : "Unavailable"}
                               </span>
                             </td>
-                            <td style={{ color: "#94a3b8", fontSize: 13 }}>
+                            <td style={{ color: "var(--text-secondary)", fontSize: 13 }}>
                               {responder.activeIncidentId
-                                ? incidents.find((i) => i.incidentId === responder.activeIncidentId)?.type || "Active"
+                                ? incidents.find((i) => i.incidentId === responder.activeIncidentId)?.type || "Active Assignment"
                                 : "None"}
                             </td>
                             <td>
@@ -837,8 +1100,8 @@ const DispatcherDashboard = ({ onLogout, user, userData }) => {
                               </button>
                             </td>
                           </tr>
-                        ))
-                      )}
+                        ));
+                      })()}
                     </tbody>
                   </table>
                 </div>
@@ -847,97 +1110,47 @@ const DispatcherDashboard = ({ onLogout, user, userData }) => {
           )}
 
           {/* ══════════════════════════════
+              INCIDENT MAP TAB
+              ══════════════════════════════ */}
+          {activeTab === "incident-map" && (
+            <>
+              <div className="dd-page-header">
+                <h1 className="dd-page-title">Incident Map</h1>
+                <p className="dd-page-subtitle">
+                  Locations shared by reporters. Select a marker to inspect or assign an incident.
+                </p>
+              </div>
+              <Suspense fallback={<div className="dd-card" role="status" style={{ padding: 24 }}>Loading map…</div>}>
+                <IncidentMap
+                  incidents={incidents}
+                  formatDate={formatDate}
+                  onViewIncident={handleViewIncident}
+                  onAssignIncident={setAssignIncident}
+                />
+              </Suspense>
+            </>
+          )}
+
+          {/* ══════════════════════════════
               REPORTS TAB
               ══════════════════════════════ */}
           {activeTab === "reports" && (
-            <>
-              <div className="dd-page-header">
-                <h1 className="dd-page-title">Incident Reports</h1>
-                <p className="dd-page-subtitle">Filter, review and export incident data</p>
-              </div>
-              <div className="dd-card">
-                <div className="dd-filter-bar">
-                  <select
-                    className="dd-select"
-                    value={statusFilter}
-                    onChange={(e) => setStatusFilter(e.target.value)}
-                  >
-                    <option value="All">All Statuses</option>
-                    <option value="Reported">Reported</option>
-                    <option value="Assigned">Assigned</option>
-                    <option value="En Route">En Route</option>
-                    <option value="On Scene">On Scene</option>
-                    <option value="Resolved">Resolved</option>
-                  </select>
-                  <select
-                    className="dd-select"
-                    value={severityFilter}
-                    onChange={(e) => setSeverityFilter(e.target.value)}
-                  >
-                    <option value="All">All Severities</option>
-                    <option value="Minor">Minor</option>
-                    <option value="Serious">Serious</option>
-                    <option value="Critical">Critical</option>
-                  </select>
-                  <input
-                    type="date"
-                    className="dd-input"
-                    value={dateFrom}
-                    onChange={(e) => setDateFrom(e.target.value)}
-                    placeholder="From Date"
-                  />
-                  <input
-                    type="date"
-                    className="dd-input"
-                    value={dateTo}
-                    onChange={(e) => setDateTo(e.target.value)}
-                    placeholder="To Date"
-                  />
-                </div>
-
-                <div className="dd-table-wrap">
-                  <table className="dd-table">
-                    <thead>
-                      <tr>
-                        <th>Type</th>
-                        <th>Severity</th>
-                        <th>Reporter</th>
-                        <th>Address</th>
-                        <th>Status</th>
-                        <th>Date</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {getFilteredIncidents().length === 0 ? (
-                        <tr className="dd-empty-row">
-                          <td colSpan="6">No incidents match the selected filters</td>
-                        </tr>
-                      ) : (
-                        getFilteredIncidents().map((incident) => (
-                          <tr key={incident.incidentId}>
-                            <td style={{ fontWeight: 500, color: "#e2e8f0" }}>{incident.type}</td>
-                            <td><SeverityBadge severity={incident.severity} /></td>
-                            <td style={{ color: "#94a3b8" }}>{incident.reporterName}</td>
-                            <td style={{ color: "#94a3b8" }}>{incident.address}</td>
-                            <td><StatusBadge status={incident.status} /></td>
-                            <td style={{ color: "#64748b", fontSize: 12 }}>{formatDate(incident.createdAt)}</td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-
-                <div className="dd-download-row">
-                  <button className="dd-btn dd-btn-download" onClick={downloadPDF}>
-                    ↓ Download PDF
-                  </button>
-                  <button className="dd-btn dd-btn-download" onClick={downloadCSV}>
-                    ↓ Download CSV
-                  </button>
-                </div>
-              </div>
-            </>
+            <ReportsTab
+              reportsSearchQuery={reportsSearchQuery}
+              setReportsSearchQuery={setReportsSearchQuery}
+              statusFilter={statusFilter}
+              setStatusFilter={setStatusFilter}
+              severityFilter={severityFilter}
+              setSeverityFilter={setSeverityFilter}
+              dateFrom={dateFrom}
+              setDateFrom={setDateFrom}
+              dateTo={dateTo}
+              setDateTo={setDateTo}
+              filteredIncidents={getFilteredIncidents()}
+              downloadPDF={downloadPDF}
+              downloadCSV={downloadCSV}
+              formatDate={formatDate}
+            />
           )}
 
           {/* ══════════════════════════════
@@ -948,30 +1161,83 @@ const DispatcherDashboard = ({ onLogout, user, userData }) => {
               <div className="dd-page-header">
                 <h1 className="dd-page-title">Notifications</h1>
                 <p className="dd-page-subtitle">
-                  {unreadCount > 0
-                    ? `${unreadCount} unread notification${unreadCount > 1 ? "s" : ""} — click to mark as read`
-                    : "All notifications read"}
+                  In-app alerts for new reports, assignments and responder progress.
                 </p>
               </div>
-              <div className="dd-card">
-                <div className="dd-notif-list">
-                  {notifications.length === 0 ? (
-                    <div className="dd-notif-empty">No notifications yet</div>
-                  ) : (
-                    notifications.map((notification) => (
-                      <div
-                        key={notification.notificationId}
-                        className={`dd-notif-item ${!notification.isRead ? "unread" : ""}`}
-                        onClick={() => handleMarkNotificationRead(notification)}
-                      >
-                        <span className={`dd-notif-dot ${!notification.isRead ? "unread" : "read"}`}></span>
-                        <div className="dd-notif-body">
-                          <div className="dd-notif-msg">{notification.message}</div>
-                          <div className="dd-notif-time">{formatDate(notification.createdAt)}</div>
-                        </div>
-                      </div>
-                    ))
-                  )}
+              <NotificationCenter
+                notifications={notifications}
+                unreadCount={unreadCount}
+                loading={notifLoading}
+                error={notifError}
+                actionError={notifActionError}
+                online={notifOnline}
+                fromCache={notifFromCache}
+                onMarkRead={markRead}
+                onMarkAllRead={markAllRead}
+                onOpen={openNotification}
+                formatDate={formatDate}
+                emptyHint="New incident reports and responder updates will appear here."
+              />
+            </>
+          )}
+          {/* ══════════════════════════════
+              SETTINGS TAB
+              ══════════════════════════════ */}
+          {activeTab === "settings" && (
+            <>
+              <div className="dd-page-header">
+                <h1 className="dd-page-title">Settings</h1>
+                <p className="dd-page-subtitle">Manage your Alert24 account preferences.</p>
+              </div>
+
+              <div className="settings-page">
+                <div className="settings-section">
+                  <div className="settings-section-title">Appearance</div>
+                  <div className="settings-section-subtitle">
+                    Choose how Alert24 looks for you. Your preference is saved to your account and synced across devices.
+                  </div>
+                  <div className="theme-picker" role="group" aria-label="Theme selection">
+                    <button
+                      id="dd-theme-light-btn"
+                      className={`theme-picker-btn ${theme === 'light' ? 'active' : ''}`}
+                      onClick={() => onThemeChange('light')}
+                      aria-pressed={theme === 'light'}
+                    >
+                      <span className="theme-picker-icon">☀</span>
+                      Light
+                    </button>
+                    <button
+                      id="dd-theme-dark-btn"
+                      className={`theme-picker-btn ${theme === 'dark' ? 'active' : ''}`}
+                      onClick={() => onThemeChange('dark')}
+                      aria-pressed={theme === 'dark'}
+                    >
+                      <span className="theme-picker-icon">🌙</span>
+                      Dark
+                    </button>
+                  </div>
+                  <div className="theme-current-label">
+                    Currently using: <strong>{theme === 'dark' ? 'Dark Mode' : 'Light Mode'}</strong>
+                  </div>
+                </div>
+
+                <div className="settings-section">
+                  <div className="settings-section-title">Account</div>
+                  <div className="settings-divider"></div>
+                  <div className="settings-row">
+                    <div>
+                      <div className="settings-row-label">Email address</div>
+                      <div className="settings-row-desc">Your login email</div>
+                    </div>
+                    <span className="settings-row-value">{user?.email}</span>
+                  </div>
+                  <div className="settings-row">
+                    <div>
+                      <div className="settings-row-label">Role</div>
+                      <div className="settings-row-desc">Your system access level</div>
+                    </div>
+                    <span className="settings-row-value">Dispatcher</span>
+                  </div>
                 </div>
               </div>
             </>
@@ -980,169 +1246,26 @@ const DispatcherDashboard = ({ onLogout, user, userData }) => {
         </main>
       </div>
 
-      {/* ══════════════════════════════
-          VIEW INCIDENT MODAL
-          ══════════════════════════════ */}
-      {viewIncident && (
-        <div className="dd-overlay" onClick={() => setViewIncident(null)}>
-          <div className="dd-modal" onClick={(e) => e.stopPropagation()}>
-            <button className="dd-modal-close" onClick={() => setViewIncident(null)}>×</button>
-            <h2 className="dd-modal-title">Incident Details</h2>
+      <ViewIncidentModal
+        viewIncident={viewIncident}
+        onClose={() => setViewIncident(null)}
+        statusLogs={statusLogs}
+        formatDate={formatDate}
+        SeverityBadge={SeverityBadge}
+        StatusBadge={StatusBadge}
+      />
 
-            <div className="dd-detail-grid">
-              <div className="dd-detail-item">
-                <span className="dd-detail-label">Type</span>
-                <span className="dd-detail-value" style={{ fontWeight: 600 }}>{viewIncident.type}</span>
-              </div>
-              <div className="dd-detail-item">
-                <span className="dd-detail-label">Severity</span>
-                <div style={{ marginTop: 3 }}><SeverityBadge severity={viewIncident.severity} /></div>
-              </div>
-              <div className="dd-detail-item">
-                <span className="dd-detail-label">Current Status</span>
-                <div style={{ marginTop: 3 }}><StatusBadge status={viewIncident.status} /></div>
-              </div>
-              <div className="dd-detail-item">
-                <span className="dd-detail-label">Reported</span>
-                <span className="dd-detail-value">{formatDate(viewIncident.createdAt)}</span>
-              </div>
-              <div className="dd-detail-item full-width">
-                <span className="dd-detail-label">Location</span>
-                <span className="dd-detail-value">{viewIncident.address}</span>
-              </div>
-              <div className="dd-detail-item full-width">
-                <span className="dd-detail-label">Description</span>
-                <span className="dd-detail-value" style={{ lineHeight: 1.6 }}>{viewIncident.description}</span>
-              </div>
-              {viewIncident.photoUrl && (
-                <div className="dd-detail-item full-width">
-                  <span className="dd-detail-label">Photo</span>
-                  <img src={viewIncident.photoUrl} alt="Incident" className="dd-incident-photo" />
-                </div>
-              )}
-            </div>
-
-            <div className="dd-modal-divider"></div>
-
-            <div className="dd-modal-subtitle">Status History</div>
-            <div className="dd-timeline">
-              {statusLogs.length === 0 ? (
-                <div className="dd-timeline-empty">No status updates recorded yet</div>
-              ) : (
-                statusLogs.map((log) => (
-                  <div key={log.logId} className="dd-timeline-item">
-                    <div className="dd-timeline-line-wrap">
-                      <div className="dd-timeline-dot"></div>
-                      <div className="dd-timeline-connector"></div>
-                    </div>
-                    <div className="dd-timeline-body">
-                      <div className="dd-timeline-status">
-                        <StatusBadge status={log.status} />
-                      </div>
-                      <div className="dd-timeline-notes">{log.notes}</div>
-                      <div className="dd-timeline-time">{formatDate(log.timestamp)}</div>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ══════════════════════════════
-          ASSIGN RESPONDER MODAL
-          ══════════════════════════════ */}
-      {assignIncident && (
-        <div
-          className="dd-overlay"
-          onClick={() => { setAssignIncident(null); setSelectedResponder(null); }}
-        >
-          <div className="dd-modal" onClick={(e) => e.stopPropagation()}>
-            <button
-              className="dd-modal-close"
-              onClick={() => { setAssignIncident(null); setSelectedResponder(null); }}
-            >×</button>
-            <h2 className="dd-modal-title">Assign Responder</h2>
-
-            {/* Incident summary strip */}
-            <div className="dd-incident-summary">
-              <div className="dd-incident-summary-field">
-                <span className="dd-incident-summary-label">Type</span>
-                <span className="dd-incident-summary-value">{assignIncident.type}</span>
-              </div>
-              <div className="dd-incident-summary-field">
-                <span className="dd-incident-summary-label">Severity</span>
-                <SeverityBadge severity={assignIncident.severity} />
-              </div>
-              <div className="dd-incident-summary-field">
-                <span className="dd-incident-summary-label">Location</span>
-                <span className="dd-incident-summary-value">{assignIncident.address}</span>
-              </div>
-            </div>
-
-            <div className="dd-modal-subtitle">Select Responder</div>
-
-            <div className="dd-responder-list">
-              {responders.length === 0 ? (
-                <div className="dd-notif-empty">No responders registered</div>
-              ) : (
-                responders.map((responder) => (
-                  <div
-                    key={responder.uid}
-                    className={`dd-responder-row ${
-                      !responder.isAvailable
-                        ? "unavailable"
-                        : selectedResponder?.uid === responder.uid
-                        ? "selected"
-                        : "selectable"
-                    }`}
-                    onClick={() => {
-                      if (responder.isAvailable) {
-                        setSelectedResponder(
-                          selectedResponder?.uid === responder.uid ? null : responder
-                        );
-                      }
-                    }}
-                  >
-                    <div>
-                      <div className="dd-responder-name">{responder.name}</div>
-                      <div className="dd-responder-meta">
-                        <span>{responder.speciality || "General"}</span>
-                        <span>·</span>
-                        <span className={`dd-badge ${responder.isAvailable ? "dd-badge-available" : "dd-badge-unavailable"}`}>
-                          {responder.isAvailable ? "Available" : "Unavailable"}
-                        </span>
-                      </div>
-                    </div>
-                    <div className="dd-responder-check">
-                      {selectedResponder?.uid === responder.uid && (
-                        <span className="dd-responder-check-icon"><IconCheck /></span>
-                      )}
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-
-            <div className="dd-modal-actions">
-              <button
-                className="dd-btn dd-btn-primary"
-                onClick={handleAssignIncident}
-                disabled={!selectedResponder}
-              >
-                Assign Responder
-              </button>
-              <button
-                className="dd-btn dd-btn-secondary"
-                onClick={() => { setAssignIncident(null); setSelectedResponder(null); }}
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <AssignIncidentModal
+        assignIncident={assignIncident}
+        onClose={() => { setAssignIncident(null); setSelectedResponder(null); }}
+        responders={responders}
+        selectedResponder={selectedResponder}
+        onSelectResponder={setSelectedResponder}
+        onAssign={handleAssignIncident}
+        assigning={assigning}
+        SeverityBadge={SeverityBadge}
+        IconCheck={IconCheck}
+      />
     </div>
   );
 };

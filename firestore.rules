@@ -1,49 +1,385 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Helper functions
+
+    // ───────────────────────── Helper functions ─────────────────────────
     function isAuth() { return request.auth != null; }
-    function isDispatcher() {
-      return isAuth() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'dispatcher';
+
+    // Roles live in users/{uid}.role. The role field is IMMUTABLE for clients:
+    // no rule below allows `role` to appear in an update's affected keys, and
+    // users may only self-create as 'reporter'. Staff roles must be provisioned
+    // by trusted code (see scripts/create-staff-account.js).
+    function roleOf(uid) {
+      return get(/databases/$(database)/documents/users/$(uid)).data.role;
     }
-    function isResponder() {
-      return isAuth() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'responder';
-    }
-    function isReporter() {
-      return isAuth() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'reporter';
+    function isDispatcher() { return isAuth() && roleOf(request.auth.uid) == 'dispatcher'; }
+    function isResponder()  { return isAuth() && roleOf(request.auth.uid) == 'responder'; }
+    function isReporter()   { return isAuth() && roleOf(request.auth.uid) == 'reporter'; }
+
+    function incidentPath(id) { return /databases/$(database)/documents/incidents/$(id); }
+
+    function changedKeys() {
+      return request.resource.data.diff(resource.data).affectedKeys();
     }
 
-    // Users collection
+    // Forward-only lifecycle: Reported -> Assigned -> En Route -> On Scene -> Resolved
+    function validResponderTransition(from, to) {
+      return (from == 'Assigned' && to == 'En Route')
+          || (from == 'En Route' && to == 'On Scene')
+          || (from == 'On Scene' && to == 'Resolved');
+    }
+
+    // ───────────────────────────── users ─────────────────────────────
     match /users/{userId} {
-      allow read: if isAuth();
-      allow write: if isAuth() && (request.auth.uid == userId || isDispatcher());
+      // Contact details are visible only to their owner and to dispatchers.
+      allow read: if isAuth() && (request.auth.uid == userId || isDispatcher());
+
+      // Self-registration is limited to the unprivileged 'reporter' role.
+      allow create: if isAuth()
+        && request.auth.uid == userId
+        && request.resource.data.keys().hasOnly(['uid', 'name', 'email', 'phone', 'role', 'createdAt'])
+        && request.resource.data.keys().hasAll(['uid', 'name', 'email', 'phone', 'role', 'createdAt'])
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.role == 'reporter'
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.name is string && request.resource.data.name.size() <= 100
+        && request.resource.data.email is string && request.resource.data.email.size() <= 200
+        && request.resource.data.phone is string && request.resource.data.phone.size() <= 30;
+
+      allow update: if isAuth() && (
+        (request.auth.uid == userId && (selfProfileEdit() || responderSelfAvailability(userId)))
+        || (isDispatcher() && dispatcherManagesResponder(userId))
+      );
+
+      allow delete: if false;
+
+      // Ordinary profile edit. `role`, `uid`, `email`, `createdAt`, `isAvailable`
+      // and `activeIncidentId` can NOT be changed through this path.
+      function selfProfileEdit() {
+        return changedKeys().hasOnly(['name', 'phone', 'speciality', 'themePreference'])
+          && request.resource.data.get('name', '') is string
+          && request.resource.data.get('name', '').size() <= 100
+          && request.resource.data.get('phone', '') is string
+          && request.resource.data.get('phone', '').size() <= 30
+          && request.resource.data.get('speciality', '') is string
+          && request.resource.data.get('speciality', '').size() <= 100
+          && (!changedKeys().hasAny(['speciality']) || resource.data.role == 'responder')
+          && request.resource.data.get('themePreference', 'dark') in ['light', 'dark'];
+      }
+
+      // A responder may go unavailable at any time, and may only become available
+      // when idle, or when releasing an incident that is Resolved in the same batch.
+      function responderSelfAvailability(uid) {
+        return resource.data.role == 'responder'
+          && changedKeys().hasOnly(['isAvailable', 'activeIncidentId'])
+          && request.resource.data.isAvailable is bool
+          && (
+            (
+              request.resource.data.get('activeIncidentId', '') == resource.data.get('activeIncidentId', '')
+              && (request.resource.data.isAvailable == false
+                  || resource.data.get('activeIncidentId', '') == '')
+            )
+            ||
+            (
+              request.resource.data.get('activeIncidentId', '') == ''
+              && request.resource.data.isAvailable == true
+              && resource.data.get('activeIncidentId', '') != ''
+              && getAfter(incidentPath(resource.data.activeIncidentId)).data.status == 'Resolved'
+              && getAfter(incidentPath(resource.data.activeIncidentId)).data.responderId == uid
+            )
+          );
+      }
+
+      // Dispatchers may toggle a responder's availability only when the responder is
+      // idle, and may bind a responder to an incident only as part of the assignment
+      // batch (incident must be moving Reported -> Assigned to this same responder).
+      function dispatcherManagesResponder(uid) {
+        return resource.data.role == 'responder'
+          && changedKeys().hasOnly(['isAvailable', 'activeIncidentId'])
+          && request.resource.data.isAvailable is bool
+          && (
+            (
+              request.resource.data.get('activeIncidentId', '') == resource.data.get('activeIncidentId', '')
+              && (request.resource.data.isAvailable == false
+                  || resource.data.get('activeIncidentId', '') == '')
+            )
+            ||
+            (
+              resource.data.get('isAvailable', false) == true
+              && resource.data.get('activeIncidentId', '') == ''
+              && request.resource.data.isAvailable == false
+              && request.resource.data.activeIncidentId is string
+              && request.resource.data.activeIncidentId != ''
+              && get(incidentPath(request.resource.data.activeIncidentId)).data.status == 'Reported'
+              && getAfter(incidentPath(request.resource.data.activeIncidentId)).data.status == 'Assigned'
+              && getAfter(incidentPath(request.resource.data.activeIncidentId)).data.responderId == uid
+            )
+          );
+      }
     }
 
-    // Incidents collection
+    // ─────────────────────────── incidents ───────────────────────────
     match /incidents/{incidentId} {
-      allow create: if isAuth();
       allow read: if isAuth() && (
         isDispatcher() ||
         (resource.data.reporterId == request.auth.uid) ||
         (resource.data.responderId == request.auth.uid)
       );
-      allow update: if isAuth() && (
-        isDispatcher() ||
-        (isResponder() && resource.data.responderId == request.auth.uid)
-      );
+
+      // Only reporters create incidents, only for themselves, always as 'Reported',
+      // with validated fields, and only together with the initial status-log entry
+      // (deterministic ID `<incidentId>_reported`) in the same batch.
+      allow create: if isReporter()
+        && request.resource.data.keys().hasOnly(['reporterId', 'reporterName', 'type', 'severity', 'description', 'address', 'photoUrl', 'status', 'createdAt', 'updatedAt', 'latitude', 'longitude'])
+        && request.resource.data.keys().hasAll(['reporterId', 'reporterName', 'type', 'severity', 'description', 'address', 'photoUrl', 'status', 'createdAt', 'updatedAt'])
+        && request.resource.data.reporterId == request.auth.uid
+        && request.resource.data.status == 'Reported'
+        && request.resource.data.type in ['Road Accident', 'Fire', 'Medical Emergency', 'Flood', 'Other']
+        && request.resource.data.severity in ['Minor', 'Serious', 'Critical']
+        && request.resource.data.reporterName is string && request.resource.data.reporterName.size() <= 100
+        && request.resource.data.description is string
+        && request.resource.data.description.size() >= 20 && request.resource.data.description.size() <= 2000
+        && request.resource.data.address is string
+        && request.resource.data.address.size() >= 1 && request.resource.data.address.size() <= 300
+        && request.resource.data.photoUrl is string && request.resource.data.photoUrl.size() <= 500000
+        && validOptionalCoordinates()
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time
+        && existsAfter(/databases/$(database)/documents/statusLogs/$(incidentId + '_reported'));
+
+      // GPS coordinates are optional (address-only incidents remain valid) but, when
+      // present, must be a complete, in-range latitude/longitude pair of numbers.
+      function validOptionalCoordinates() {
+        return !request.resource.data.keys().hasAny(['latitude', 'longitude'])
+          || (
+            request.resource.data.keys().hasAll(['latitude', 'longitude'])
+            && request.resource.data.latitude is number
+            && request.resource.data.longitude is number
+            && request.resource.data.latitude >= -90 && request.resource.data.latitude <= 90
+            && request.resource.data.longitude >= -180 && request.resource.data.longitude <= 180
+          );
+      }
+
+      allow update: if isAuth() && (dispatcherAssigns() || responderProgresses());
+
       allow delete: if false;
+
+      // Dispatcher: Reported -> Assigned, touching only assignment fields. The
+      // responder document must be bound to this incident in the same batch, which
+      // makes a stale or duplicate assignment fail (status is no longer 'Reported').
+      function dispatcherAssigns() {
+        return isDispatcher()
+          && resource.data.status == 'Reported'
+          && request.resource.data.status == 'Assigned'
+          && changedKeys().hasOnly(['status', 'responderId', 'responderName', 'updatedAt'])
+          && changedKeys().hasAll(['status', 'responderId', 'updatedAt'])
+          && request.resource.data.responderId is string
+          && request.resource.data.get('responderName', '') is string
+          && request.resource.data.updatedAt == request.time
+          && roleOf(request.resource.data.responderId) == 'responder'
+          && getAfter(/databases/$(database)/documents/users/$(request.resource.data.responderId)).data.activeIncidentId == incidentId;
+      }
+
+      // Assigned responder: one forward step, touching only status/updatedAt/resolvedAt.
+      // reporterId / responderId and all descriptive fields are immutable here.
+      function responderProgresses() {
+        return isResponder()
+          && resource.data.responderId == request.auth.uid
+          && changedKeys().hasOnly(['status', 'updatedAt', 'resolvedAt'])
+          && changedKeys().hasAll(['status', 'updatedAt'])
+          && validResponderTransition(resource.data.status, request.resource.data.status)
+          && request.resource.data.updatedAt == request.time
+          && (
+            (request.resource.data.status == 'Resolved' && request.resource.data.resolvedAt == request.time)
+            ||
+            (request.resource.data.status != 'Resolved' && !changedKeys().hasAny(['resolvedAt']))
+          );
+      }
     }
 
-    // Status logs
+    // ───────────────────────── statusLogs (audit trail) ─────────────────────────
+    // Append-only. Every entry must correspond to a real, authorised incident change
+    // made in the same batch, so history cannot be forged by arbitrary users.
     match /statusLogs/{logId} {
-      allow read, write: if isAuth();
+      allow read: if isAuth() && (
+        isDispatcher() ||
+        get(incidentPath(resource.data.incidentId)).data.reporterId == request.auth.uid ||
+        get(incidentPath(resource.data.incidentId)).data.responderId == request.auth.uid
+      );
+
+      allow create: if isAuth()
+        && request.resource.data.keys().hasOnly(['incidentId', 'status', 'updatedBy', 'notes', 'timestamp'])
+        && request.resource.data.keys().hasAll(['incidentId', 'status', 'updatedBy', 'notes', 'timestamp'])
+        && request.resource.data.incidentId is string
+        && request.resource.data.updatedBy == request.auth.uid
+        && request.resource.data.timestamp == request.time
+        && request.resource.data.notes is string && request.resource.data.notes.size() <= 1000
+        && (initialReportLog(logId) || assignmentLog() || responderLog());
+
+      allow update, delete: if false;
+
+      // Reporter creating a brand-new incident (incident did not exist before this batch).
+      function initialReportLog(id) {
+        return request.resource.data.status == 'Reported'
+          && request.resource.data.notes == 'Incident reported'
+          && id == request.resource.data.incidentId + '_reported'
+          && !exists(incidentPath(request.resource.data.incidentId))
+          && existsAfter(incidentPath(request.resource.data.incidentId))
+          && getAfter(incidentPath(request.resource.data.incidentId)).data.reporterId == request.auth.uid
+          && getAfter(incidentPath(request.resource.data.incidentId)).data.status == 'Reported';
+      }
+
+      // Dispatcher assigning an incident (Reported -> Assigned in the same batch).
+      function assignmentLog() {
+        return isDispatcher()
+          && request.resource.data.status == 'Assigned'
+          && get(incidentPath(request.resource.data.incidentId)).data.status == 'Reported'
+          && getAfter(incidentPath(request.resource.data.incidentId)).data.status == 'Assigned';
+      }
+
+      // The assigned responder logging a progress step or a field note; the logged
+      // status must equal the incident's status after the batch.
+      function responderLog() {
+        return isResponder()
+          && get(incidentPath(request.resource.data.incidentId)).data.responderId == request.auth.uid
+          && request.resource.data.status == getAfter(incidentPath(request.resource.data.incidentId)).data.status;
+      }
     }
 
-    // Notifications
+    // ───────────────────────── notifications ─────────────────────────
+    // Personal notifications use the recipient's uid as `userId`. Events for dispatch
+    // staff use the shared channel `userId == 'dispatchers'` (readable by dispatchers
+    // only; per-user read state lives in /notificationReads).
+    // Every create must accompany a REAL incident transition in the same batch and the
+    // recipient is derived from the incident, never chosen freely by the client.
     match /notifications/{notificationId} {
+      allow read: if isAuth() && (
+        resource.data.userId == request.auth.uid
+        || (resource.data.userId == 'dispatchers' && isDispatcher())
+      );
+
+      allow create: if isAuth()
+        && request.resource.data.keys().hasOnly(['userId', 'incidentId', 'message', 'isRead', 'createdAt', 'type'])
+        && request.resource.data.keys().hasAll(['userId', 'incidentId', 'message', 'isRead', 'createdAt'])
+        && request.resource.data.isRead == false
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.incidentId is string
+        && request.resource.data.message is string
+        && (
+          (isDispatcher() && assignmentNotice())
+          || (isResponder() && progressNotice(notificationId))
+          || (isResponder() && resolutionNotice(notificationId))
+          || (isReporter() && reportedNotice(notificationId))
+        );
+
+      // Recipients may only mark their own notifications as read.
+      allow update: if isAuth()
+        && resource.data.userId == request.auth.uid
+        && changedKeys().hasOnly(['isRead'])
+        && request.resource.data.isRead == true;
+
+      allow delete: if false;
+
+      function typeOk(t) { return request.resource.data.get('type', t) == t; }
+
+      // Dispatcher: Reported -> Assigned (same batch); tells the new responder and the reporter.
+      function assignmentNotice() {
+        return get(incidentPath(request.resource.data.incidentId)).data.status == 'Reported'
+          && getAfter(incidentPath(request.resource.data.incidentId)).data.status == 'Assigned'
+          && typeOk('incident_assigned')
+          && (
+            (
+              request.resource.data.userId == getAfter(incidentPath(request.resource.data.incidentId)).data.responderId
+              && request.resource.data.message.size() <= 400
+            )
+            ||
+            (
+              request.resource.data.userId == getAfter(incidentPath(request.resource.data.incidentId)).data.reporterId
+              && request.resource.data.message == 'A responder has been assigned to your emergency'
+            )
+          );
+      }
+
+      function statusKey(s) { return s == 'En Route' ? 'enroute' : 'onscene'; }
+      function statusPhrase(s) { return s == 'En Route' ? 'en route' : 'on scene'; }
+
+      // Assigned responder: Assigned -> En Route or En Route -> On Scene (same batch).
+      // Notifies the incident's reporter and the dispatcher channel.
+      function progressNotice(nid) {
+        return get(incidentPath(request.resource.data.incidentId)).data.responderId == request.auth.uid
+          && getAfter(incidentPath(request.resource.data.incidentId)).data.responderId == request.auth.uid
+          && validResponderTransition(
+               get(incidentPath(request.resource.data.incidentId)).data.status,
+               getAfter(incidentPath(request.resource.data.incidentId)).data.status)
+          && getAfter(incidentPath(request.resource.data.incidentId)).data.status in ['En Route', 'On Scene']
+          && request.resource.data.get('type', '') == 'status_update'
+          && (
+            (
+              request.resource.data.userId == getAfter(incidentPath(request.resource.data.incidentId)).data.reporterId
+              && nid == request.resource.data.incidentId + '_' + statusKey(getAfter(incidentPath(request.resource.data.incidentId)).data.status) + '_reporter'
+              && request.resource.data.message == 'Your responder is ' + statusPhrase(getAfter(incidentPath(request.resource.data.incidentId)).data.status)
+            )
+            ||
+            (
+              request.resource.data.userId == 'dispatchers'
+              && nid == request.resource.data.incidentId + '_' + statusKey(getAfter(incidentPath(request.resource.data.incidentId)).data.status) + '_dispatchers'
+              && request.resource.data.message == getAfter(incidentPath(request.resource.data.incidentId)).data.type + ': responder is ' + statusPhrase(getAfter(incidentPath(request.resource.data.incidentId)).data.status)
+            )
+          );
+      }
+
+      // Assigned responder: On Scene -> Resolved (same batch). Notifies the reporter and dispatchers.
+      function resolutionNotice(nid) {
+        return get(incidentPath(request.resource.data.incidentId)).data.status == 'On Scene'
+          && getAfter(incidentPath(request.resource.data.incidentId)).data.status == 'Resolved'
+          && getAfter(incidentPath(request.resource.data.incidentId)).data.responderId == request.auth.uid
+          && typeOk('incident_resolved')
+          && (
+            (
+              request.resource.data.userId == getAfter(incidentPath(request.resource.data.incidentId)).data.reporterId
+              && request.resource.data.message == 'Your emergency report has been resolved'
+            )
+            ||
+            (
+              request.resource.data.userId == 'dispatchers'
+              && request.resource.data.get('type', '') == 'incident_resolved'
+              && nid == request.resource.data.incidentId + '_resolved_dispatchers'
+              && request.resource.data.message == getAfter(incidentPath(request.resource.data.incidentId)).data.type + ' incident resolved'
+            )
+          );
+      }
+
+      // Reporter creating a brand-new incident (same batch): alerts the dispatcher channel with
+      // a fixed message containing only the incident type and severity (no private data).
+      function reportedNotice(nid) {
+        return request.resource.data.userId == 'dispatchers'
+          && request.resource.data.get('type', '') == 'incident_reported'
+          && nid == request.resource.data.incidentId + '_reported_dispatchers'
+          && !exists(incidentPath(request.resource.data.incidentId))
+          && existsAfter(incidentPath(request.resource.data.incidentId))
+          && getAfter(incidentPath(request.resource.data.incidentId)).data.reporterId == request.auth.uid
+          && getAfter(incidentPath(request.resource.data.incidentId)).data.status == 'Reported'
+          && request.resource.data.message == 'New ' + getAfter(incidentPath(request.resource.data.incidentId)).data.type
+               + ' incident reported (' + getAfter(incidentPath(request.resource.data.incidentId)).data.severity + ')';
+      }
+    }
+
+    // ─────────────────── notificationReads (dispatcher read receipts) ───────────────────
+    // A dispatcher's own record that they have read a shared-channel notification.
+    // Create-only; the ID is bound to the user so receipts cannot be forged for others.
+    match /notificationReads/{readId} {
       allow read: if isAuth() && resource.data.userId == request.auth.uid;
-      allow create: if isAuth();
-      allow update: if isAuth() && resource.data.userId == request.auth.uid;
+
+      allow create: if isDispatcher()
+        && request.resource.data.keys().hasOnly(['userId', 'notificationId', 'readAt'])
+        && request.resource.data.keys().hasAll(['userId', 'notificationId', 'readAt'])
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.notificationId is string
+        && readId == request.auth.uid + '_' + request.resource.data.notificationId
+        && request.resource.data.readAt == request.time
+        && get(/databases/$(database)/documents/notifications/$(request.resource.data.notificationId)).data.userId == 'dispatchers';
+
+      allow update, delete: if false;
     }
 
     // Deny everything else

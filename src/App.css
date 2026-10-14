@@ -693,8 +693,8 @@ body {
 /* Mobile — tight spacing */
 @media (max-width: 480px) {
   .auth-hero {
-    min-height: 200px;
-    max-height: 230px;
+    min-height: 190px;
+    max-height: 220px;
     padding: 20px 20px;
   }
 
@@ -731,6 +731,77 @@ body {
 
   .field-input,
   .btn {
-    height: 48px; /* slightly taller for touch targets */
+    height: 48px; /* Touch-friendly height */
+    font-size: 16px; /* Prevents auto-zoom in iOS Safari */
   }
 }
+
+/* Ultra-Small Phones (<= 360px — 320px screens) */
+@media (max-width: 360px) {
+  .auth-hero {
+    min-height: 160px;
+    max-height: 180px;
+    padding: 16px 14px;
+  }
+
+  .hero-logo-mark {
+    top: 14px;
+    left: 14px;
+  }
+
+  .hero-logo-mark .logo-name {
+    font-size: 16px;
+  }
+
+  .hero-headline {
+    font-size: 18px;
+  }
+
+  .auth-card {
+    padding: 24px 14px 36px;
+  }
+
+  .form-heading {
+    font-size: 20px;
+  }
+
+  .form-subheading {
+    font-size: 12.5px;
+  }
+
+  .field-label {
+    font-size: 12.5px;
+  }
+
+  .field-input {
+    height: 44px;
+    font-size: 16px; /* Prevents auto-zoom in iOS Safari */
+  }
+
+  .btn {
+    height: 44px;
+    font-size: 15px;
+  }
+}
+
+/* Mobile Landscape orientation (compact height) */
+@media (max-height: 520px) and (orientation: landscape) {
+  .auth-hero {
+    display: none;
+  }
+
+  .app-container {
+    min-height: 100vh;
+    overflow-y: auto;
+  }
+
+  .auth-card {
+    min-height: 100vh;
+    width: 100%;
+    max-width: 480px;
+    margin: 0 auto;
+    padding: 24px 20px;
+    border-top: none;
+  }
+}
+

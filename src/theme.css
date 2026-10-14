@@ -1,0 +1,714 @@
+/* =========================================================
+   Alert24 — Centralized Theme System
+   Semantic CSS design tokens for Light/Dark Mode
+   Applied via: document.documentElement.setAttribute('data-theme', 'dark'|'light')
+   ========================================================= */
+
+/* ── Smooth theme transitions on structural elements ─────── */
+body,
+.dashboard-container, .dd-shell, .rd-shell,
+.top-nav, .dd-topnav, .rd-topnav,
+.sidebar, .dd-sidebar, .rd-sidebar,
+.stat-card,
+.table-card, .form-card, .activity-card,
+.dd-card, .rd-card,
+.modal-content, .modal-header,
+.dd-modal-content, .dd-modal-header,
+.rd-modal-content, .rd-modal-header,
+.form-input, .field-input,
+.sidebar-link, .dd-sidebar-btn, .rd-sidebar-btn,
+.activity-item, .status-log-item,
+.loading-container, .error-container {
+  transition:
+    background-color 0.22s ease,
+    border-color     0.22s ease,
+    color            0.18s ease,
+    box-shadow       0.22s ease;
+}
+
+/* ════════════════════════════════════════════════════════
+   DARK MODE (default — preserves existing Alert24 look)
+   ════════════════════════════════════════════════════════ */
+:root,
+:root[data-theme="dark"] {
+  /* ── Page / shell backgrounds ─────────────────────────── */
+  --bg-page:          rgba(6, 10, 20, 0.95);
+  --bg-nav:           rgba(6, 11, 20, 0.97);
+  --bg-sidebar:       rgba(6, 11, 20, 0.97);
+  --bg-surface:       #0F1A2E;
+  --bg-surface-2:     #122038;
+  --bg-surface-3:     #162840;
+  --bg-hover:         rgba(255, 255, 255, 0.04);
+  --bg-hover-strong:  rgba(255, 255, 255, 0.06);
+  --bg-active:        rgba(220, 38, 38, 0.08);
+
+  /* ── Text ─────────────────────────────────────────────── */
+  --text-primary:     #ffffff;
+  --text-secondary:   #cbd5e1;
+  --text-muted:       #94a3b8;
+  --text-faint:       #475569;
+
+  /* ── Borders ──────────────────────────────────────────── */
+  --border:           rgba(255, 255, 255, 0.07);
+  --border-subtle:    rgba(255, 255, 255, 0.04);
+  --border-medium:    rgba(255, 255, 255, 0.09);
+  --border-strong:    rgba(255, 255, 255, 0.12);
+  --border-section:   rgba(255, 255, 255, 0.06);
+  --nav-border:       rgba(255, 255, 255, 0.06);
+  --sidebar-border:   rgba(255, 255, 255, 0.055);
+
+  /* ── Shadows ──────────────────────────────────────────── */
+  --shadow-surface:   none;
+  --shadow-nav:       none;
+  --shadow-modal:     0 24px 80px rgba(0, 0, 0, 0.6);
+
+  /* ── Navigation pill (system status) ─────────────────── */
+  --nav-pill-bg:      rgba(255, 255, 255, 0.05);
+  --nav-pill-border:  rgba(255, 255, 255, 0.09);
+  --nav-pill-text:    #94a3b8;
+
+  /* ── Inputs ───────────────────────────────────────────── */
+  --input-bg:         #122038;
+  --input-bg-hover:   rgba(255, 255, 255, 0.06);
+  --input-bg-focus:   rgba(255, 255, 255, 0.06);
+  --input-border:     rgba(255, 255, 255, 0.09);
+  --input-border-hover: rgba(255, 255, 255, 0.14);
+  --input-text:       #e2e8f0;
+  --input-placeholder: #475569;
+  --input-option-bg:  #0f1a2e;
+
+  /* ── Tables ───────────────────────────────────────────── */
+  --table-header-color: #94a3b8;
+  --table-row-border:   rgba(255, 255, 255, 0.04);
+  --table-row-hover:    rgba(255, 255, 255, 0.025);
+
+  /* ── Modals ───────────────────────────────────────────── */
+  --modal-overlay:    rgba(0, 0, 0, 0.75);
+  --modal-bg:         #0F1A2E;
+  --modal-border:     rgba(255, 255, 255, 0.09);
+
+  /* ── Badges / count chips ─────────────────────────────── */
+  --count-badge-bg:   rgba(255, 255, 255, 0.07);
+  --count-badge-text: #94a3b8;
+
+  /* ── Ghost / outline buttons ──────────────────────────── */
+  --ghost-btn-border:       rgba(255, 255, 255, 0.12);
+  --ghost-btn-color:        #cbd5e1;
+  --ghost-btn-hover-bg:     rgba(255, 255, 255, 0.06);
+  --ghost-btn-hover-border: rgba(255, 255, 255, 0.20);
+  --ghost-btn-hover-color:  #ffffff;
+
+  /* ── Logout / sign-out button ─────────────────────────── */
+  --logout-border:      rgba(255, 255, 255, 0.10);
+  --logout-color:       #94a3b8;
+  --logout-hover-bg:    rgba(255, 255, 255, 0.06);
+  --logout-hover-color: #ffffff;
+  --logout-hover-border: rgba(255, 255, 255, 0.18);
+
+  /* ── Profile section ──────────────────────────────────── */
+  --profile-header-border:  rgba(255, 255, 255, 0.07);
+  --profile-field-border:   rgba(255, 255, 255, 0.06);
+  --profile-avatar-bg:      linear-gradient(135deg, #1c3250 0%, #0f1a2e 100%);
+  --profile-avatar-border:  rgba(255, 255, 255, 0.10);
+  --profile-avatar-text:    #ffffff;
+
+  /* ── Activity / notification items ───────────────────── */
+  --activity-bg:          rgba(255, 255, 255, 0.02);
+  --activity-border:      rgba(255, 255, 255, 0.06);
+  --activity-hover-bg:    rgba(255, 255, 255, 0.04);
+  --activity-hover-border: rgba(255, 255, 255, 0.10);
+
+  /* ── Section dividers / labels ────────────────────────── */
+  --section-label-color:  #475569;
+  --section-label-border: rgba(255, 255, 255, 0.06);
+  --divider-color:        rgba(255, 255, 255, 0.07);
+
+  /* ── Status log items (modal timeline) ───────────────── */
+  --log-item-bg:    rgba(255, 255, 255, 0.02);
+  --log-item-border: rgba(255, 255, 255, 0.06);
+  --log-item-hover: rgba(255, 255, 255, 0.04);
+
+  /* ── Chart / widget borders ───────────────────────────── */
+  --chart-border:   rgba(255, 255, 255, 0.06);
+
+  /* ── Settings / theme picker ──────────────────────────── */
+  --settings-card-bg:        #0F1A2E;
+  --settings-section-border: rgba(255, 255, 255, 0.07);
+  --theme-btn-bg:            rgba(255, 255, 255, 0.04);
+  --theme-btn-border:        rgba(255, 255, 255, 0.09);
+  --theme-btn-color:         #94a3b8;
+  --theme-btn-hover-bg:      rgba(255, 255, 255, 0.07);
+  --theme-btn-active-bg:     rgba(255, 255, 255, 0.10);
+  --theme-btn-active-border: rgba(255, 255, 255, 0.22);
+  --theme-btn-active-color:  #ffffff;
+
+  /* ── File input selector ──────────────────────────────── */
+  --file-btn-bg:     rgba(255, 255, 255, 0.07);
+  --file-btn-border: rgba(255, 255, 255, 0.12);
+  --file-btn-color:  #cbd5e1;
+  --file-btn-hover:  rgba(255, 255, 255, 0.12);
+}
+
+/* ════════════════════════════════════════════════════════
+   LIGHT MODE
+   ════════════════════════════════════════════════════════ */
+:root[data-theme="light"] {
+  /* ── Page / shell backgrounds ─────────────────────────── */
+  --bg-page:          #F8FAFC;
+  --bg-nav:           #FFFFFF;
+  --bg-sidebar:       #F1F5F9;
+  --bg-surface:       #FFFFFF;
+  --bg-surface-2:     #F8FAFC;
+  --bg-surface-3:     #F1F5F9;
+  --bg-hover:         rgba(15, 23, 42, 0.035);
+  --bg-hover-strong:  rgba(15, 23, 42, 0.06);
+  --bg-active:        rgba(220, 38, 38, 0.06);
+
+  /* ── Text ─────────────────────────────────────────────── */
+  --text-primary:     #0F172A;
+  --text-secondary:   #334155;
+  --text-muted:       #64748B;
+  --text-faint:       #94A3B8;
+
+  /* ── Borders ──────────────────────────────────────────── */
+  --border:           #E2E8F0;
+  --border-subtle:    #F1F5F9;
+  --border-medium:    #E2E8F0;
+  --border-strong:    #CBD5E1;
+  --border-section:   #E2E8F0;
+  --nav-border:       #E2E8F0;
+  --sidebar-border:   #E2E8F0;
+
+  /* ── Shadows ──────────────────────────────────────────── */
+  --shadow-surface:   0 1px 3px rgba(15, 23, 42, 0.08), 0 1px 2px rgba(15, 23, 42, 0.04);
+  --shadow-nav:       0 1px 3px rgba(15, 23, 42, 0.08);
+  --shadow-modal:     0 20px 60px rgba(15, 23, 42, 0.20), 0 4px 16px rgba(15, 23, 42, 0.08);
+
+  /* ── Navigation pill (system status) ─────────────────── */
+  --nav-pill-bg:      #F1F5F9;
+  --nav-pill-border:  #E2E8F0;
+  --nav-pill-text:    #64748B;
+
+  /* ── Inputs ───────────────────────────────────────────── */
+  --input-bg:         #F8FAFC;
+  --input-bg-hover:   #FFFFFF;
+  --input-bg-focus:   #FFFFFF;
+  --input-border:     #E2E8F0;
+  --input-border-hover: #CBD5E1;
+  --input-text:       #0F172A;
+  --input-placeholder: #94A3B8;
+  --input-option-bg:  #FFFFFF;
+
+  /* ── Tables ───────────────────────────────────────────── */
+  --table-header-color: #64748B;
+  --table-row-border:   #F1F5F9;
+  --table-row-hover:    rgba(15, 23, 42, 0.025);
+
+  /* ── Modals ───────────────────────────────────────────── */
+  --modal-overlay:    rgba(15, 23, 42, 0.45);
+  --modal-bg:         #FFFFFF;
+  --modal-border:     #E2E8F0;
+
+  /* ── Badges / count chips ─────────────────────────────── */
+  --count-badge-bg:   #F1F5F9;
+  --count-badge-text: #64748B;
+
+  /* ── Ghost / outline buttons ──────────────────────────── */
+  --ghost-btn-border:       #E2E8F0;
+  --ghost-btn-color:        #475569;
+  --ghost-btn-hover-bg:     #F1F5F9;
+  --ghost-btn-hover-border: #CBD5E1;
+  --ghost-btn-hover-color:  #0F172A;
+
+  /* ── Logout / sign-out button ─────────────────────────── */
+  --logout-border:      #E2E8F0;
+  --logout-color:       #64748B;
+  --logout-hover-bg:    #F1F5F9;
+  --logout-hover-color: #0F172A;
+  --logout-hover-border: #CBD5E1;
+
+  /* ── Profile section ──────────────────────────────────── */
+  --profile-header-border:  #E2E8F0;
+  --profile-field-border:   #F1F5F9;
+  --profile-avatar-bg:      linear-gradient(135deg, #E2E8F0 0%, #CBD5E1 100%);
+  --profile-avatar-border:  #CBD5E1;
+  --profile-avatar-text:    #0F172A;
+
+  /* ── Activity / notification items ───────────────────── */
+  --activity-bg:          #FAFAFA;
+  --activity-border:      #E2E8F0;
+  --activity-hover-bg:    #F8FAFC;
+  --activity-hover-border: #CBD5E1;
+
+  /* ── Section dividers / labels ────────────────────────── */
+  --section-label-color:  #94A3B8;
+  --section-label-border: #E2E8F0;
+  --divider-color:        #E2E8F0;
+
+  /* ── Status log items (modal timeline) ───────────────── */
+  --log-item-bg:    #FAFAFA;
+  --log-item-border: #E2E8F0;
+  --log-item-hover: #F8FAFC;
+
+  /* ── Chart / widget borders ───────────────────────────── */
+  --chart-border:   #E2E8F0;
+
+  /* ── Settings / theme picker ──────────────────────────── */
+  --settings-card-bg:        #FFFFFF;
+  --settings-section-border: #E2E8F0;
+  --theme-btn-bg:            #F8FAFC;
+  --theme-btn-border:        #E2E8F0;
+  --theme-btn-color:         #64748B;
+  --theme-btn-hover-bg:      #F1F5F9;
+  --theme-btn-active-bg:     #0F172A;
+  --theme-btn-active-border: #0F172A;
+  --theme-btn-active-color:  #FFFFFF;
+
+  /* ── File input selector ──────────────────────────────── */
+  --file-btn-bg:     #F1F5F9;
+  --file-btn-border: #E2E8F0;
+  --file-btn-color:  #475569;
+  --file-btn-hover:  #E2E8F0;
+}
+
+/* ════════════════════════════════════════════════════════
+   SETTINGS — Theme Picker UI (shared across all dashboards)
+   ════════════════════════════════════════════════════════ */
+
+/* Settings page container */
+.settings-page {
+  max-width: 680px;
+}
+
+/* Settings section card */
+.settings-section {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 24px 26px;
+  margin-bottom: 18px;
+  box-shadow: var(--shadow-surface);
+}
+
+.settings-section-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.2px;
+  margin: 0 0 4px;
+}
+
+.settings-section-subtitle {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin: 0 0 22px;
+  line-height: 1.5;
+}
+
+/* Theme picker — segmented control */
+.theme-picker {
+  display: inline-flex;
+  background: var(--bg-surface-2);
+  border: 1px solid var(--border-medium);
+  border-radius: 9px;
+  padding: 4px;
+  gap: 4px;
+}
+
+.theme-picker-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 20px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition:
+    background-color 0.18s ease,
+    border-color     0.18s ease,
+    color            0.15s ease,
+    box-shadow       0.18s ease;
+  white-space: nowrap;
+  letter-spacing: 0.1px;
+}
+
+.theme-picker-btn:hover {
+  background: var(--bg-hover-strong);
+  color: var(--text-secondary);
+}
+
+.theme-picker-btn.active {
+  background: var(--bg-nav);
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.10);
+}
+
+[data-theme="dark"] .theme-picker-btn.active {
+  background: rgba(255, 255, 255, 0.10);
+  border-color: rgba(255, 255, 255, 0.20);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.30);
+}
+
+.theme-picker-icon {
+  font-size: 15px;
+  line-height: 1;
+}
+
+/* Theme description text */
+.theme-current-label {
+  margin-top: 14px;
+  font-size: 12px;
+  color: var(--text-faint);
+  letter-spacing: 0.2px;
+}
+
+/* Settings divider */
+.settings-divider {
+  height: 1px;
+  background: var(--divider-color);
+  margin: 20px 0;
+}
+
+/* Upcoming settings placeholders */
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.settings-row:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.settings-row-label {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.settings-row-desc {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.settings-row-value {
+  font-size: 13px;
+  color: var(--text-muted);
+  background: var(--bg-surface-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 12px;
+  white-space: nowrap;
+}
+
+/* Settings mobile responsiveness */
+@media (max-width: 540px) {
+  .settings-section {
+    padding: 18px 14px;
+  }
+  .theme-picker {
+    display: flex;
+    width: 100%;
+  }
+  .theme-picker-btn {
+    flex: 1;
+    justify-content: center;
+    padding: 10px 12px;
+    font-size: 13px;
+  }
+  .settings-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 12px 0;
+  }
+  .settings-row-value {
+    align-self: flex-start;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}
+
+/* ════════════════════════════════════════════════════════
+   LIGHT MODE — TARGETED OVERRIDES
+   Elements that need different treatment in light mode.
+   Semantic alert colours stay consistent; only contrast
+   and legibility are adjusted where necessary.
+   ════════════════════════════════════════════════════════ */
+
+/* Body background */
+[data-theme="light"] body {
+  background-color: var(--bg-page);
+  color: var(--text-secondary);
+}
+
+/* Loading full-page screens */
+[data-theme="light"] .loading-container,
+[data-theme="light"] .dd-fullpage-state,
+[data-theme="light"] .error-container {
+  background: var(--bg-page);
+}
+
+/* Auth loading spinner (App.css) */
+[data-theme="light"] .loading-spinner {
+  border-color: rgba(15, 23, 42, 0.08);
+  border-top-color: #c0392b;
+}
+
+/* ── Badge contrast in light mode ─────────────────────── */
+/* "Reported" — slate-300 text is invisible on white bg */
+[data-theme="light"] .status-reported,
+[data-theme="light"] .dd-badge-reported,
+[data-theme="light"] .rd-badge-reported {
+  background: rgba(71, 85, 105, 0.10);
+  color: #475569;
+  border: 1px solid rgba(71, 85, 105, 0.22);
+}
+
+/* Severity badges — darken text for light bg readability */
+[data-theme="light"] .badge-critical,
+[data-theme="light"] .dd-badge-critical,
+[data-theme="light"] .rd-badge-critical { color: #b91c1c; }
+
+[data-theme="light"] .badge-serious,
+[data-theme="light"] .dd-badge-serious,
+[data-theme="light"] .rd-badge-serious  { color: #c2410c; }
+
+[data-theme="light"] .badge-minor,
+[data-theme="light"] .dd-badge-minor,
+[data-theme="light"] .rd-badge-minor    { color: #b45309; }
+
+/* Status badges */
+[data-theme="light"] .status-assigned,
+[data-theme="light"] .dd-badge-assigned,
+[data-theme="light"] .rd-badge-assigned  { color: #1d4ed8; }
+
+[data-theme="light"] .status-en-route,
+[data-theme="light"] .dd-badge-en-route,
+[data-theme="light"] .rd-badge-en-route  { color: #6d28d9; }
+
+[data-theme="light"] .status-on-scene,
+[data-theme="light"] .dd-badge-on-scene,
+[data-theme="light"] .rd-badge-on-scene  { color: #92400e; }
+
+[data-theme="light"] .status-resolved,
+[data-theme="light"] .dd-badge-resolved,
+[data-theme="light"] .rd-badge-resolved  { color: #15803d; }
+
+[data-theme="light"] .dd-badge-available   { color: #15803d; }
+[data-theme="light"] .dd-badge-unavailable { color: #b91c1c; }
+
+/* Profile role badge — #60a5fa invisible on white */
+[data-theme="light"] .profile-role-badge { color: #1d4ed8; }
+
+/* ── Notification items ────────────────────────────────── */
+[data-theme="light"] .activity-item.unread,
+[data-theme="light"] .dd-notif-item.unread {
+  background: rgba(220, 38, 38, 0.03);
+  border-color: rgba(220, 38, 38, 0.12);
+}
+[data-theme="light"] .rd-notif-item.unread {
+  background: rgba(37, 99, 235, 0.04);
+  border-color: rgba(37, 99, 235, 0.12);
+}
+
+/* ── Status panel (Responder active incident) ──────────── */
+[data-theme="light"] .rd-status-panel {
+  background: rgba(37, 99, 235, 0.04);
+  border-color: rgba(37, 99, 235, 0.14);
+}
+
+/* ── Toast / banner visibility ─────────────────────────── */
+[data-theme="light"] .error-banner,
+[data-theme="light"] .dd-error-banner,
+[data-theme="light"] .rd-error-banner {
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.08);
+  background: rgba(220, 38, 38, 0.08);
+  border-color: rgba(220, 38, 38, 0.22);
+  color: #b91c1c;
+}
+
+[data-theme="light"] .success-banner,
+[data-theme="light"] .rd-success-banner,
+[data-theme="light"] .d-success-toast,
+[data-theme="light"] .dd-success-toast {
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.08);
+  background: rgba(22, 163, 74, 0.08);
+  border-color: rgba(22, 163, 74, 0.22);
+  color: #15803d;
+}
+
+/* ── Timeline dots ─────────────────────────────────────── */
+[data-theme="light"] .dd-timeline-dot,
+[data-theme="light"] .rd-timeline-dot {
+  border-color: var(--modal-bg);
+}
+
+/* Dispatcher nav active pill */
+[data-theme="light"] .dd-nav-status {
+  background: rgba(220, 38, 38, 0.05);
+}
+
+/* Responder nav active pill */
+[data-theme="light"] .rd-nav-status {
+  background: rgba(37, 99, 235, 0.05);
+}
+
+/* ── Table data readability in light mode ──────────────── */
+[data-theme="light"] .reports-table td,
+[data-theme="light"] .dd-table td,
+[data-theme="light"] .rd-table td {
+  color: var(--text-secondary);
+}
+
+/* ── Form inputs crisp contrast in light mode ─────────── */
+[data-theme="light"] .form-input,
+[data-theme="light"] .field-input,
+[data-theme="light"] .dd-input,
+[data-theme="light"] .dd-select,
+[data-theme="light"] .rd-input,
+[data-theme="light"] .rd-textarea {
+  color: #0f172a;
+  background: #ffffff;
+  border-color: #cbd5e1;
+}
+
+[data-theme="light"] .form-input::placeholder,
+[data-theme="light"] .field-input::placeholder,
+[data-theme="light"] .dd-input::placeholder,
+[data-theme="light"] .rd-input::placeholder,
+[data-theme="light"] .rd-textarea::placeholder {
+  color: #94a3b8;
+}
+
+/* ── Modals in light mode ─────────────────────────────── */
+[data-theme="light"] .modal-content,
+[data-theme="light"] .dd-modal,
+[data-theme="light"] .rd-card.rd-active-card,
+[data-theme="light"] .rd-modal-content {
+  background: #ffffff;
+  border-color: #e2e8f0;
+  box-shadow: 0 20px 50px rgba(15, 23, 42, 0.16), 0 4px 12px rgba(15, 23, 42, 0.06);
+}
+
+/* ── Light Mode Badges (crisp contrast) ──────────────── */
+[data-theme="light"] .badge-critical,
+[data-theme="light"] .dd-badge-critical,
+[data-theme="light"] .rd-badge-critical {
+  background: #fef2f2;
+  color: #b91c1c;
+  border-color: #fecaca;
+}
+
+[data-theme="light"] .badge-serious,
+[data-theme="light"] .dd-badge-serious,
+[data-theme="light"] .rd-badge-serious {
+  background: #fff7ed;
+  color: #c2410c;
+  border-color: #fed7aa;
+}
+
+[data-theme="light"] .badge-minor,
+[data-theme="light"] .dd-badge-minor,
+[data-theme="light"] .rd-badge-minor {
+  background: #fefce8;
+  color: #a16207;
+  border-color: #fef08a;
+}
+
+[data-theme="light"] .status-assigned,
+[data-theme="light"] .dd-badge-assigned,
+[data-theme="light"] .rd-badge-assigned {
+  background: #eff6ff;
+  color: #1d4ed8;
+  border-color: #bfdbfe;
+}
+
+[data-theme="light"] .status-en-route,
+[data-theme="light"] .dd-badge-en-route,
+[data-theme="light"] .rd-badge-en-route {
+  background: #f5f3ff;
+  color: #6d28d9;
+  border-color: #ddd6fe;
+}
+
+[data-theme="light"] .status-on-scene,
+[data-theme="light"] .dd-badge-on-scene,
+[data-theme="light"] .rd-badge-on-scene {
+  background: #fffbeb;
+  color: #92400e;
+  border-color: #fde68a;
+}
+
+[data-theme="light"] .status-resolved,
+[data-theme="light"] .dd-badge-resolved,
+[data-theme="light"] .rd-badge-resolved,
+[data-theme="light"] .dd-badge-available {
+  background: #f0fdf4;
+  color: #15803d;
+  border-color: #bbf7d0;
+}
+
+[data-theme="light"] .dd-badge-unavailable {
+  background: #fef2f2;
+  color: #b91c1c;
+  border-color: #fecaca;
+}
+
+/* ════════════════════════════════════════════════════════
+   ACCESSIBILITY & FOCUS VISIBLE (SYSTEM-WIDE)
+   ════════════════════════════════════════════════════════ */
+:focus-visible {
+  outline: 2px solid #3b82f6 !important;
+  outline-offset: 2px !important;
+}
+
+button:focus:not(:focus-visible),
+a:focus:not(:focus-visible),
+input:focus:not(:focus-visible),
+select:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* ════════════════════════════════════════════════════════
+   CUSTOM SCROLLBARS (SYSTEM-WIDE)
+   ════════════════════════════════════════════════════════ */
+::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.25);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.45);
+}
+
+[data-theme="light"] ::-webkit-scrollbar-thumb {
+  background: rgba(100, 116, 139, 0.22);
+}
+
+[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 116, 139, 0.38);
+}
+
+

@@ -21,6 +21,25 @@
     <title>Alert24 — Emergency Management System</title>
   </head>
   <body>
+    <script>
+      /* ── Alert24 — No-flash theme init ──────────────────────────────
+         Runs synchronously before React mounts.
+         Reads the persisted theme from localStorage and applies
+         data-theme to <html> immediately — prevents any flash.
+      ──────────────────────────────────────────────────────────────── */
+      (function () {
+        try {
+          var t = localStorage.getItem('alert24_theme');
+          if (t === 'light' || t === 'dark') {
+            document.documentElement.setAttribute('data-theme', t);
+          } else {
+            document.documentElement.setAttribute('data-theme', 'dark');
+          }
+        } catch (e) {
+          document.documentElement.setAttribute('data-theme', 'dark');
+        }
+      })();
+    </script>
     <noscript>You need to enable JavaScript to run this app.</noscript>
     <div id="root"></div>
     <!--

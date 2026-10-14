@@ -11,28 +11,22 @@ import {
   serverTimestamp,
   writeBatch
 } from 'firebase/firestore';
-import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
 import './ResponderDashboard.css';
 import backgroundImage from './images/image4.webp';
+import IncidentImage from './components/IncidentImage';
+import ResolveIncidentModal from './components/responder/ResolveIncidentModal';
+import { getIncidentImageUrl } from './utils/imageUtils';
+import { canTransition, friendlyFirestoreError } from './utils/incidentLifecycle';
+import NotificationCenter from './components/notifications/NotificationCenter';
+import useNotifications from './hooks/useNotifications';
+import { queueProgressNotifications } from './utils/notifications';
 
+/* ── Helpers ── */
 const formatDate = (timestamp) => {
   if (!timestamp) return '';
   const date = timestamp.toDate();
   const day = String(date.getDate()).padStart(2, '0');
-  const months = [
-    'Jan',
-    'Feb',
-    'Mar',
-    'Apr',
-    'May',
-    'Jun',
-    'Jul',
-    'Aug',
-    'Sep',
-    'Oct',
-    'Nov',
-    'Dec'
-  ];
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   const month = months[date.getMonth()];
   const year = date.getFullYear();
   const hours = String(date.getHours()).padStart(2, '0');
@@ -40,7 +34,126 @@ const formatDate = (timestamp) => {
   return `${day} ${month} ${year} ${hours}:${minutes}`;
 };
 
-const ResponderDashboard = ({ onLogout, user, userData }) => {
+/* ── Reusable SVG icon components (matching Dispatcher style) ── */
+const IconShield = ({ size = 24, className = '' }) => (
+  <svg className={className} width={size} height={size} viewBox="0 0 24 24" fill="none">
+    <path d="M12 2L3 7V12C3 16.5 6.84 20.74 12 22C17.16 20.74 21 16.5 21 12V7L12 2Z" fill="currentColor" />
+    <path d="M12 8V14M12 16V17" stroke="white" strokeWidth="2" strokeLinecap="round" />
+  </svg>
+);
+
+const IconHome = () => (
+  <svg className="rd-sidebar-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M3 9L12 2L21 9V20C21 20.5 20.79 21.04 20.41 21.41C20.04 21.79 19.5 22 19 22H5C4.47 22 3.96 21.79 3.59 21.41C3.21 21.04 3 20.5 3 20V9Z"/>
+    <path d="M9 22V12H15V22"/>
+  </svg>
+);
+
+const IconFlame = () => (
+  <svg className="rd-sidebar-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M8.5 14.5A2.5 2.5 0 0011 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 11-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 002.5 2.5z"/>
+  </svg>
+);
+
+const IconClock = () => (
+  <svg className="rd-sidebar-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="12" r="10"/>
+    <path d="M12 8V12L15 15"/>
+  </svg>
+);
+
+const IconUser = () => (
+  <svg className="rd-sidebar-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/>
+    <circle cx="12" cy="7" r="4"/>
+  </svg>
+);
+
+const IconBell = () => (
+  <svg className="rd-sidebar-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M18 8.5C18 5.46 15.54 3 12.5 3S7 5.46 7 8.5c0 3-1.5 5-1.5 5h13s-1.5-2-1.5-5zM15 17a3 3 0 11-6 0"/>
+  </svg>
+);
+
+const IconMapPin = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, opacity: 0.6 }}>
+    <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/>
+    <circle cx="12" cy="10" r="3"/>
+  </svg>
+);
+
+const IconArrowRight = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M5 12h14M12 5l7 7-7 7"/>
+  </svg>
+);
+
+const IconCheck = () => (
+  <svg width="10" height="10" viewBox="0 0 12 12" fill="none">
+    <path d="M2 6L5 9L10 3" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+  </svg>
+);
+
+const IconSettingsGear = () => (
+  <svg className="rd-sidebar-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="12" r="3"/>
+    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+  </svg>
+);
+
+/* ── Severity badge ── */
+const SeverityBadge = ({ severity }) => {
+  const cls = {
+    Critical: 'rd-badge rd-badge-critical',
+    Serious:  'rd-badge rd-badge-serious',
+    Minor:    'rd-badge rd-badge-minor',
+  }[severity] || 'rd-badge rd-badge-minor';
+  return <span className={cls}>{severity}</span>;
+};
+
+/* ── Status badge ── */
+const StatusBadge = ({ status }) => {
+  const key = status.toLowerCase().replace(/\s+/g, '-');
+  return <span className={`rd-badge rd-badge-${key}`}>{status}</span>;
+};
+
+/* ── Status progression bar ── */
+const STATUS_STEPS = ['Assigned', 'En Route', 'On Scene', 'Resolved'];
+
+const StatusProgression = ({ currentStatus }) => {
+  const currentIndex = STATUS_STEPS.indexOf(currentStatus);
+  return (
+    <div className="rd-status-progression">
+      <div className="rd-progression-label">Response Progress</div>
+      <div className="rd-progression-steps">
+        {STATUS_STEPS.map((step, index) => {
+          const isDone    = index < currentIndex;
+          const isCurrent = index === currentIndex;
+          const stepClass = isDone ? 'done' : isCurrent ? 'current' : '';
+          const connClass = index < currentIndex ? 'done' : '';
+          return (
+            <React.Fragment key={step}>
+              <div className={`rd-prog-step ${stepClass}`}>
+                <div className="rd-prog-dot">
+                  {isDone && <IconCheck />}
+                </div>
+                <span className="rd-prog-step-name">{step}</span>
+              </div>
+              {index < STATUS_STEPS.length - 1 && (
+                <div className={`rd-prog-connector ${connClass}`} />
+              )}
+            </React.Fragment>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
+/* ════════════════════════════════════════════════════════════
+   RESPONDER DASHBOARD COMPONENT
+   ════════════════════════════════════════════════════════════ */
+const ResponderDashboard = ({ onLogout, user, userData, theme, onThemeChange }) => {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [errorBanner, setErrorBanner] = useState('');
 
@@ -49,9 +162,21 @@ const ResponderDashboard = ({ onLogout, user, userData }) => {
   const [activeIncident, setActiveIncident] = useState(null);
   const [statusLogs, setStatusLogs] = useState([]);
   const [fieldNotes, setFieldNotes] = useState('');
+  const [savingNotes, setSavingNotes] = useState(false);
+  const [updatingStatus, setUpdatingStatus] = useState(false);
 
-  // Notifications
-  const [notifications, setNotifications] = useState([]);
+  // Notifications (shared real-time hook)
+  const {
+    notifications,
+    unreadCount,
+    loading: notifLoading,
+    error: notifError,
+    actionError: notifActionError,
+    online: notifOnline,
+    fromCache: notifFromCache,
+    markRead,
+    markAllRead,
+  } = useNotifications(user, 'responder');
 
   // Profile state
   const [editingProfile, setEditingProfile] = useState(false);
@@ -62,35 +187,31 @@ const ResponderDashboard = ({ onLogout, user, userData }) => {
   });
   const [profileSuccess, setProfileSuccess] = useState('');
 
-  // Fetch assigned incidents
+  // History search and filters
+  const [historySearch, setHistorySearch] = useState('');
+  const [historyStatusFilter, setHistoryStatusFilter] = useState('all');
+  const [historySeverityFilter, setHistorySeverityFilter] = useState('all');
+
+  // Resolution confirmation modal state
+  const [showResolveModal, setShowResolveModal] = useState(false);
+  const [resolveNotes, setResolveNotes] = useState('');
+
+  /* ── Fetch assigned incidents ── */
   useEffect(() => {
     if (!user) return;
-
-    const q = query(
-      collection(db, 'incidents'),
-      where('responderId', '==', user.uid)
-    );
-
+    const q = query(collection(db, 'incidents'), where('responderId', '==', user.uid));
     const unsubscribe = onSnapshot(
       q,
       (snapshot) => {
-        const data = snapshot.docs.map((doc) => ({
-          incidentId: doc.id,
-          ...doc.data()
-        }));
+        const data = snapshot.docs.map((doc) => ({ incidentId: doc.id, ...doc.data() }));
         data.sort((a, b) => {
           if (!a.createdAt) return 1;
           if (!b.createdAt) return -1;
           return b.createdAt.toMillis() - a.createdAt.toMillis();
         });
         setIncidents(data);
-
-        // Find active incident
         const active = data.find(
-          (i) =>
-            i.status === 'Assigned' ||
-            i.status === 'En Route' ||
-            i.status === 'On Scene'
+          (i) => i.status === 'Assigned' || i.status === 'En Route' || i.status === 'On Scene'
         );
         setActiveIncident(active || null);
       },
@@ -99,22 +220,13 @@ const ResponderDashboard = ({ onLogout, user, userData }) => {
         setErrorBanner('Error loading incidents');
       }
     );
-
     return () => unsubscribe();
   }, [user]);
 
-  // Fetch status logs for active incident
+  /* ── Fetch status logs for active incident ── */
   useEffect(() => {
-    if (!activeIncident) {
-      setStatusLogs([]);
-      return;
-    }
-
-    const q = query(
-      collection(db, 'statusLogs'),
-      where('incidentId', '==', activeIncident.incidentId)
-    );
-
+    if (!activeIncident) { setStatusLogs([]); return; }
+    const q = query(collection(db, 'statusLogs'), where('incidentId', '==', activeIncident.incidentId));
     const unsubscribe = onSnapshot(
       q,
       (snapshot) => {
@@ -127,139 +239,114 @@ const ResponderDashboard = ({ onLogout, user, userData }) => {
           });
         setStatusLogs(data);
       },
-      (err) => {
-        console.error('Error fetching status logs:', err);
-      }
+      (err) => { console.error('Error fetching status logs:', err); }
     );
-
     return () => unsubscribe();
   }, [activeIncident]);
 
-  // Fetch notifications
-  useEffect(() => {
-    if (!user) return;
-
-    const q = query(
-      collection(db, 'notifications'),
-      where('userId', '==', user.uid)
-    );
-
-    const unsubscribe = onSnapshot(
-      q,
-      (snapshot) => {
-        const data = snapshot.docs
-          .map((doc) => ({ notificationId: doc.id, ...doc.data() }))
-          .sort((a, b) => {
-            if (!a.createdAt) return 1;
-            if (!b.createdAt) return -1;
-            return b.createdAt.toMillis() - a.createdAt.toMillis();
-          });
-        setNotifications(data);
-      },
-      (err) => {
-        console.error('Error fetching notifications:', err);
-      }
-    );
-
-    return () => unsubscribe();
-  }, [user]);
-
-  // Handle marking notification as read
-  const markNotificationRead = async (notificationId) => {
-    try {
-      const notifRef = doc(db, 'notifications', notificationId);
-      await updateDoc(notifRef, { isRead: true });
-    } catch (err) {
-      console.error('Error marking as read:', err);
-    }
+  /* ── Handlers ── */
+  const markNotificationRead = (notificationId) => {
+    const n = notifications.find((x) => x.notificationId === notificationId);
+    if (n) markRead(n);
   };
 
-  // Handle updating status
-  const handleUpdateStatus = async (newStatus) => {
-    if (!activeIncident) return;
+  // Open the incident a notification refers to (responders only see their own assignments)
+  const openNotification = (n) => {
+    markRead(n);
+    const incident = incidents.find((i) => i.incidentId === n.incidentId);
+    if (!incident) return false;
+    if (activeIncident && activeIncident.incidentId === incident.incidentId) {
+      setActiveTab('assigned-job');
+    } else {
+      setHistoryStatusFilter('all');
+      setHistorySeverityFilter('all');
+      setHistorySearch(incident.incidentId);
+      setActiveTab('job-history');
+    }
+    return true;
+  };
 
+  const handleUpdateStatus = async (newStatus, customNotes = '') => {
+    if (!activeIncident) return;
+    if (!canTransition(activeIncident.status, newStatus)) {
+      setErrorBanner(`Invalid status change: ${activeIncident.status} → ${newStatus}`);
+      return;
+    }
+    if (updatingStatus) return; // ignore repeated taps while a change is in flight
+    setUpdatingStatus(true);
     try {
       const batch = writeBatch(db);
-
-      // Update incident
       const incidentRef = doc(db, 'incidents', activeIncident.incidentId);
-      batch.update(incidentRef, {
-        status: newStatus,
-        updatedAt: serverTimestamp()
-      });
+      const incidentUpdate = { status: newStatus, updatedAt: serverTimestamp() };
+      // Reliable resolution timestamp (used by the dispatcher "Resolved Today" metric)
+      if (newStatus === 'Resolved') incidentUpdate.resolvedAt = serverTimestamp();
+      batch.update(incidentRef, incidentUpdate);
 
-      // Add status log
+      const notesToSave = (customNotes || fieldNotes || '').slice(0, 1000);
       const statusLogRef = doc(collection(db, 'statusLogs'));
       batch.set(statusLogRef, {
         incidentId: activeIncident.incidentId,
         status: newStatus,
         updatedBy: user.uid,
-        notes: fieldNotes || '',
+        notes: notesToSave,
         timestamp: serverTimestamp()
       });
 
-      // If resolved, update responder availability and clear active incident
       if (newStatus === 'Resolved') {
         const responderRef = doc(db, 'users', user.uid);
-        batch.update(responderRef, {
-          isAvailable: true,
-          activeIncidentId: ''
-        });
-
-        // Notify reporter
-        const reporterNotifRef = doc(collection(db, 'notifications'));
-        batch.set(reporterNotifRef, {
-          userId: activeIncident.reporterId,
-          incidentId: activeIncident.incidentId,
-          message: 'Your emergency report has been resolved',
-          isRead: false,
-          createdAt: serverTimestamp()
-        });
-
-        // Notify dispatcher
-        // Optional: find dispatcher to notify, but let's skip for now
+        batch.update(responderRef, { isAvailable: true, activeIncidentId: '' });
       }
 
+      // In-app notices for the reporter and dispatchers, in the same atomic write
+      queueProgressNotifications(batch, db, activeIncident, newStatus);
+
       await batch.commit();
+
       setFieldNotes('');
+      setResolveNotes('');
+      setShowResolveModal(false);
     } catch (err) {
       console.error('Error updating status:', err);
-      setErrorBanner('Error updating status: ' + err.message);
+      setErrorBanner('Error updating status: ' + friendlyFirestoreError(err));
+    } finally {
+      setUpdatingStatus(false);
     }
   };
 
-  // Handle saving field notes
   const handleSaveNotes = async () => {
-    if (!activeIncident || !fieldNotes) return;
+    if (!activeIncident || !fieldNotes.trim()) return;
+    setSavingNotes(true);
     try {
       await addDoc(collection(db, 'statusLogs'), {
         incidentId: activeIncident.incidentId,
         status: activeIncident.status,
         updatedBy: user.uid,
-        notes: fieldNotes,
+        notes: fieldNotes.slice(0, 1000),
         timestamp: serverTimestamp()
       });
       setFieldNotes('');
     } catch (err) {
       console.error('Error saving notes:', err);
       setErrorBanner('Error saving notes');
+    } finally {
+      setSavingNotes(false);
     }
   };
 
-  // Handle toggling availability
   const handleToggleAvailability = async () => {
     if (!userData) return;
+    // A responder with an active assignment cannot mark themselves available
+    if (activeIncident || userData.activeIncidentId) {
+      setErrorBanner('You have an active assignment. Resolve it before changing your availability.');
+      return;
+    }
     try {
-      const userRef = doc(db, 'users', user.uid);
-      await updateDoc(userRef, {
-        isAvailable: !userData.isAvailable
-      });
+      await updateDoc(doc(db, 'users', user.uid), { isAvailable: !userData.isAvailable });
     } catch (err) {
       console.error('Error updating availability:', err);
     }
   };
 
-  // Handle updating profile
   const handleSaveProfile = async (e) => {
     e.preventDefault();
     try {
@@ -272,488 +359,264 @@ const ResponderDashboard = ({ onLogout, user, userData }) => {
     }
   };
 
-  // Calculate analytics data
+  /* ── Stats ── */
   const stats = {
-    total: incidents.length,
+    total:     incidents.length,
     completed: incidents.filter((i) => i.status === 'Resolved').length,
-    active: incidents.filter(
-      (i) =>
-        i.status === 'Assigned' ||
-        i.status === 'En Route' ||
-        i.status === 'On Scene'
+    active:    incidents.filter(
+      (i) => i.status === 'Assigned' || i.status === 'En Route' || i.status === 'On Scene'
     ).length
   };
 
-  const unreadCount = notifications.filter((n) => !n.isRead).length;
 
 
-  const ShieldIcon = () => (
-    <svg
-      className="nav-icon"
-      viewBox="0 0 24 24"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-    >
-      <path
-        d="M12 2L3 7V12C3 16.5 6.84 20.74 12 22C17.16 20.74 21 16.5 21 12V7L12 2Z"
-        fill="#c0392b"
-      />
-      <path
-        d="M12 8V14"
-        stroke="white"
-        strokeWidth="2"
-        strokeLinecap="round"
-      />
-      <path
-        d="M12 16V17"
-        stroke="white"
-        strokeWidth="2"
-        strokeLinecap="round"
-      />
-    </svg>
-  );
+  /* ── Filtered job history ── */
+  const filteredHistory = incidents.filter((incident) => {
+    const term = historySearch.trim().toLowerCase();
+    const matchesSearch = !term ||
+      (incident.type || '').toLowerCase().includes(term) ||
+      (incident.address || '').toLowerCase().includes(term) ||
+      (incident.incidentId || '').toLowerCase().includes(term) ||
+      (incident.description || '').toLowerCase().includes(term);
+    const matchesStatus = historyStatusFilter === 'all' || incident.status === historyStatusFilter;
+    const matchesSeverity = historySeverityFilter === 'all' || incident.severity === historySeverityFilter;
+    return matchesSearch && matchesStatus && matchesSeverity;
+  });
 
+  const isHistoryFiltered = historySearch.trim() !== '' || historyStatusFilter !== 'all' || historySeverityFilter !== 'all';
+  const resetHistoryFilters = () => {
+    setHistorySearch('');
+    setHistoryStatusFilter('all');
+    setHistorySeverityFilter('all');
+  };
+
+  /* ── Sidebar nav items ── */
+  const navItems = [
+    { id: 'dashboard',     label: 'My Dashboard',   shortLabel: 'Home',     Icon: IconHome },
+    { id: 'assigned-job',  label: 'Active Job',      shortLabel: 'Job',      Icon: IconFlame },
+    { id: 'job-history',   label: 'Job History',     shortLabel: 'History',  Icon: IconClock },
+    { id: 'profile',       label: 'My Profile',      shortLabel: 'Profile',  Icon: IconUser },
+    { id: 'notifications', label: 'Notifications',   shortLabel: 'Alerts',   Icon: IconBell },
+    { id: 'settings',      label: 'Settings',        shortLabel: 'Settings', Icon: IconSettingsGear },
+  ];
+
+  /* ══════════════════════════════════════════════════════════
+     RENDER
+     ══════════════════════════════════════════════════════════ */
   return (
-    <div
-      className="dashboard-container"
-      style={{ backgroundImage: `url(${backgroundImage})` }}
-    >
-      <nav className="top-nav">
-        <div className="nav-left">
-          <ShieldIcon />
-          <span className="nav-title">Alert24</span>
+    <div className="rd-shell" style={{ backgroundImage: `url(${backgroundImage})` }}>
+
+      {/* ── Top Navigation ── */}
+      <nav className="rd-topnav">
+        <div className="rd-nav-brand">
+          <IconShield size={24} className="rd-nav-icon" style={{ color: '#dc2626' }} />
+          <span className="rd-nav-title">Alert24</span>
         </div>
-        <div className="nav-center">
-          <span className="blinking-dot"></span>
-          <span className="system-status">FIELD UNIT ACTIVE</span>
+
+        <div className="rd-nav-status">
+          <span className="rd-status-dot"></span>
+          <span className="rd-status-label">Field Unit Active</span>
         </div>
-        <div className="nav-right">
-          <div className="user-info">
-            <span className="user-name">{userData?.name}</span>
+
+        <div className="rd-nav-right">
+          <div className="rd-nav-user">
+            <span className="rd-nav-username">{userData?.name || 'Responder'}</span>
             <button
-              className={`availability-toggle ${
-                userData?.isAvailable ? 'available' : 'unavailable'
-              }`}
+              className={`rd-avail-toggle ${userData?.isAvailable ? 'available' : 'unavailable'}`}
               onClick={handleToggleAvailability}
+              title="Toggle availability"
             >
+              <span className="rd-avail-dot"></span>
               {userData?.isAvailable ? 'Available' : 'Unavailable'}
             </button>
           </div>
-          <button className="logout-btn" onClick={onLogout}>
-            Logout
-          </button>
+          <button className="rd-logout-btn" onClick={onLogout}>Sign Out</button>
         </div>
       </nav>
 
+      {/* ── Error Banner ── */}
       {errorBanner && (
-        <div
-          className="error-banner"
-          style={{
-            position: 'fixed',
-            top: '80px',
-            left: '50%',
-            transform: 'translateX(-50%)',
-            zIndex: 9999
-          }}
-        >
-          <div
-            style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              gap: '16px'
-            }}
-          >
-            <span>{errorBanner}</span>
-            <button
-              style={{
-                background: 'transparent',
-                border: 'none',
-                color: '#f87171',
-                fontSize: '20px',
-                cursor: 'pointer'
-              }}
-              onClick={() => setErrorBanner('')}
-            >
-              ×
-            </button>
-          </div>
+        <div className="rd-error-banner">
+          <span>{errorBanner}</span>
+          <button className="rd-banner-close" onClick={() => setErrorBanner('')}>×</button>
         </div>
       )}
 
-      <div className="dashboard-main">
-        <aside className="sidebar">
-          <nav className="sidebar-nav">
-            <button
-              className={`sidebar-link ${
-                activeTab === 'dashboard' ? 'active' : ''
-              }`}
-              onClick={() => setActiveTab('dashboard')}
-            >
-              <span className="link-icon">
-                <svg
-                  width="20"
-                  height="20"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  xmlns="http://www.w3.org/2000/svg"
-                >
-                  <path
-                    d="M3 9L12 2L21 9V20C21 20.5304 20.7893 21.0391 20.4142 21.4142C20.0391 21.7893 19.5304 22 19 22H5C4.46957 22 3.96086 21.7893 3.58579 21.4142C3.21071 21.0391 3 20.5304 3 20V9Z"
-                    stroke="#94a3b8"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                  <path
-                    d="M9 22V12H15V22"
-                    stroke="#94a3b8"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </svg>
-              </span>
-              <span>My Dashboard</span>
-            </button>
-
-            <button
-              className={`sidebar-link ${
-                activeTab === 'assigned-job' ? 'active' : ''
-              }`}
-              onClick={() => setActiveTab('assigned-job')}
-            >
-              <span className="link-icon">
-                <svg
-                  width="20"
-                  height="20"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  xmlns="http://www.w3.org/2000/svg"
-                >
-                  <path
-                    d="M12 2C12 2 8 6 8 12C8 14.1217 8.84285 16.1566 10.3431 17.6569C11.8434 19.1571 13.8783 20 16 20C18.1217 20 20.1566 19.1571 21.6569 17.6569C23.1571 16.1566 24 14.1217 24 12C24 6 20 2 20 2"
-                    stroke="#94a3b8"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </svg>
-              </span>
-              <span>My Assigned Job</span>
-            </button>
-
-            <button
-              className={`sidebar-link ${
-                activeTab === 'job-history' ? 'active' : ''
-              }`}
-              onClick={() => setActiveTab('job-history')}
-            >
-              <span className="link-icon">
-                <svg
-                  width="20"
-                  height="20"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  xmlns="http://www.w3.org/2000/svg"
-                >
-                  <path
-                    d="M12 8V12L15 15"
-                    stroke="#94a3b8"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                  <path
-                    d="M12 2C17.5228 2 22 6.47715 22 12C22 17.5228 17.5228 22 12 22C6.47715 22 2 17.5228 2 12C2 6.47715 6.47715 2 12 2Z"
-                    stroke="#94a3b8"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </svg>
-              </span>
-              <span>Job History</span>
-            </button>
-
-            <button
-              className={`sidebar-link ${
-                activeTab === 'profile' ? 'active' : ''
-              }`}
-              onClick={() => setActiveTab('profile')}
-            >
-              <span className="link-icon">
-                <svg
-                  width="20"
-                  height="20"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  xmlns="http://www.w3.org/2000/svg"
-                >
-                  <path
-                    d="M16 11C16 13.2091 14.2091 15 12 15C9.79086 15 8 13.2091 8 11C8 8.79086 9.79086 7 12 7C14.2091 7 16 8.79086 16 11Z"
-                    stroke="#94a3b8"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                  <path
-                    d="M12 2C16.4183 2 20 5.58172 20 10C20 11.785 19.4246 13.4479 18.434 14.7786C18.2163 15.07 18 15.4173 18 15.777V18C18 19.1046 17.1046 20 16 20H8C6.89543 20 6 19.1046 6 18V15.777C6 15.4173 5.78375 15.07 5.56603 14.7786C4.57543 13.4479 4 11.785 4 10C4 5.58172 7.58172 2 12 2Z"
-                    stroke="#94a3b8"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </svg>
-              </span>
-              <span>My Profile</span>
-            </button>
-
-            <button
-              className={`sidebar-link ${
-                activeTab === 'notifications' ? 'active' : ''
-              }`}
-              onClick={() => setActiveTab('notifications')}
-            >
-              <span className="link-icon">
-                <svg
-                  width="20"
-                  height="20"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  xmlns="http://www.w3.org/2000/svg"
-                >
-                  <path
-                    d="M15 17H9C8.44772 17 8 17.4477 8 18C8 18.5523 8.44772 19 9 19H15C15.5523 19 16 18.5523 16 18C16 17.4477 15.5523 17 15 17Z"
-                    stroke="#94a3b8"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                  <path
-                    d="M18 8.5C18 5.46243 15.5376 3 12.5 3C9.46243 3 7 5.46243 7 8.5C7 11.5 5.5 13.5 5.5 13.5H19.5C19.5 13.5 18 11.5 18 8.5Z"
-                    stroke="#94a3b8"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </svg>
-              </span>
-              <span>
-                Notifications
-                {unreadCount > 0 && (
-                  <span
-                    style={{
-                      marginLeft: '8px',
-                      backgroundColor: '#c0392b',
-                      color: 'white',
-                      fontSize: '10px',
-                      fontWeight: 'bold',
-                      padding: '2px 6px',
-                      borderRadius: '10px'
-                    }}
-                  >
-                    {unreadCount}
-                  </span>
+      <div className="rd-layout">
+        {/* ── Sidebar ── */}
+        <aside className="rd-sidebar">
+          <nav className="rd-sidebar-nav">
+            {navItems.map(({ id, label, shortLabel, Icon }) => (
+              <button
+                key={id}
+                className={`rd-sidebar-btn ${activeTab === id ? 'active' : ''}`}
+                onClick={() => setActiveTab(id)}
+              >
+                <Icon />
+                <span className="rd-sidebar-label">
+                  <span className="rd-label-full">{label}</span>
+                  <span className="rd-label-short">{shortLabel}</span>
+                </span>
+                {id === 'notifications' && unreadCount > 0 && (
+                  <span className="rd-notif-badge">{unreadCount}</span>
                 )}
-              </span>
-            </button>
+                {id === 'assigned-job' && activeIncident && (
+                  <span className="rd-notif-badge" style={{ background: '#dc2626' }}>1</span>
+                )}
+              </button>
+            ))}
           </nav>
-          <div className="sidebar-footer">
-            <span>Alert24 v1.0</span>
-          </div>
+          <div className="rd-sidebar-footer">Alert24 Field Ops</div>
         </aside>
 
-        <main className="content-area">
-          {/* My Dashboard */}
+        {/* ── Main Content ── */}
+        <main className="rd-content">
+
+          {/* ══════════════════════════════
+              DASHBOARD TAB
+              ══════════════════════════════ */}
           {activeTab === 'dashboard' && (
             <>
-              <div className="status-banner">
-                <div className="banner-left">
+              <div className="rd-page-header">
+                <h1 className="rd-page-title">My Dashboard</h1>
+                <p className="rd-page-subtitle">
+                  Overview of your assignments and performance
+                </p>
+              </div>
+
+              {/* Active Assignment Hero */}
+              <div className="rd-assignment-hero">
+                <div className="rd-hero-left">
                   {activeIncident ? (
                     <>
-                      <div className="pulsing-dot"></div>
-                      <div>
-                        <div className="banner-text">Active Assignment</div>
-                        <div style={{ color: '#e2e8f0', marginTop: '4px' }}>
-                          {activeIncident.type} at {activeIncident.address}
+                      <div className="rd-hero-pulse"></div>
+                      <div className="rd-hero-text">
+                        <div className="rd-hero-label">Active Assignment</div>
+                        <div className="rd-hero-title">{activeIncident.type}</div>
+                        <div className="rd-hero-sub">
+                          <IconMapPin /> {activeIncident.address}
                         </div>
                       </div>
                     </>
                   ) : (
                     <>
-                      <div className="static-dot"></div>
-                      <div className="banner-text-muted">No Active Assignment</div>
+                      <div className="rd-hero-idle-dot"></div>
+                      <div className="rd-hero-text">
+                        <span className="rd-hero-idle-label">No Active Assignment</span>
+                      </div>
                     </>
                   )}
                 </div>
                 {activeIncident && (
-                  <button
-                    className="banner-btn"
-                    onClick={() => setActiveTab('assigned-job')}
-                  >
-                    Go to Job
-                  </button>
+                  <div className="rd-hero-action">
+                    <button
+                      className="rd-btn rd-btn-action"
+                      onClick={() => setActiveTab('assigned-job')}
+                    >
+                      View Job <IconArrowRight />
+                    </button>
+                  </div>
                 )}
               </div>
 
-              <div className="stats-row">
-                <div className="stat-card">
-                  <div className="stat-icon blue"></div>
-                  <div className="stat-number">
-                    {typeof stats.total === 'number' ? stats.total : '--'}
+              {/* Stat Cards */}
+              <div className="rd-stats-row">
+                <div className="rd-stat-card blue">
+                  <div className="rd-stat-icon-wrap blue">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="#3b82f6" strokeWidth="2.5" strokeLinecap="round">
+                      <circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/>
+                    </svg>
                   </div>
-                  <div className="stat-label">Total Jobs Handled</div>
-                  <div className="stat-accent blue"></div>
+                  <div className="rd-stat-num">{stats.total}</div>
+                  <div className="rd-stat-lbl">Total Jobs Handled</div>
                 </div>
 
-                <div className="stat-card">
-                  <div className="stat-icon green"></div>
-                  <div className="stat-number">
-                    {typeof stats.completed === 'number' ? stats.completed : '--'}
+                <div className="rd-stat-card green">
+                  <div className="rd-stat-icon-wrap green">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="2.5" strokeLinecap="round">
+                      <path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>
+                    </svg>
                   </div>
-                  <div className="stat-label">Completed</div>
-                  <div className="stat-accent green"></div>
+                  <div className="rd-stat-num">{stats.completed}</div>
+                  <div className="rd-stat-lbl">Completed</div>
                 </div>
 
-                <div className="stat-card">
-                  <div className="stat-icon yellow"></div>
-                  <div className="stat-number">
-                    {typeof stats.active === 'number' ? stats.active : '--'}
+                <div className="rd-stat-card amber">
+                  <div className="rd-stat-icon-wrap amber">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth="2.5" strokeLinecap="round">
+                      <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+                    </svg>
                   </div>
-                  <div className="stat-label">Active Now</div>
-                  <div className="stat-accent yellow"></div>
+                  <div className="rd-stat-num">{stats.active}</div>
+                  <div className="rd-stat-lbl">Active Now</div>
                 </div>
               </div>
 
-              <div className="two-col-row">
-                <div className="table-card">
-                  <h2 className="card-title">Recent Job History</h2>
-                  <table className="reports-table">
-                    <thead>
-                      <tr>
-                        <th>Type</th>
-                        <th>Severity</th>
-                        <th>Address</th>
-                        <th>Status</th>
-                        <th>Date</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {incidents.length > 0 ? (
-                        incidents.slice(0, 5).map((incident, index) => (
-                          <tr
-                            key={incident.incidentId}
-                            className={index % 2 === 1 ? 'table-row-alt' : ''}
-                          >
-                            <td>{incident.type}</td>
-                            <td>
-                              <span
-                                className={`badge badge-${incident.severity.toLowerCase()}`}
-                              >
-                                {incident.severity}
-                              </span>
-                            </td>
-                            <td>{incident.address}</td>
-                            <td>
-                              <span
-                                className={`status-badge status-${incident.status
-                                  .toLowerCase()
-                                  .replace(' ', '-')}`}
-                              >
-                                {incident.status}
-                              </span>
-                            </td>
-                            <td>{formatDate(incident.createdAt)}</td>
-                          </tr>
-                        ))
-                      ) : (
+              {/* Two-column dashboard grid */}
+              <div className="rd-dashboard-grid">
+                {/* Recent Job History */}
+                <div className="rd-card">
+                  <div className="rd-card-header">
+                    <h2 className="rd-card-title">Recent Job History</h2>
+                    <span className="rd-card-meta">Last {Math.min(incidents.length, 5)} of {incidents.length}</span>
+                  </div>
+                  <div className="rd-table-wrap">
+                    <table className="rd-table">
+                      <thead>
                         <tr>
-                          <td colSpan="5">No jobs assigned yet</td>
+                          <th>Type</th>
+                          <th>Severity</th>
+                          <th>Location</th>
+                          <th>Status</th>
+                          <th>Date</th>
                         </tr>
-                      )}
-                    </tbody>
-                  </table>
-
-                  {/* My Jobs by Status Pie Chart */}
-                  <h2 className="card-title" style={{ marginTop: '24px' }}>
-                    My Jobs by Status
-                  </h2>
-                  <ResponsiveContainer width="100%" height={300}>
-                    <PieChart>
-                      <Pie
-                        data={(() => {
-                          const counts = {};
-                          incidents.forEach((i) => {
-                            counts[i.status] = (counts[i.status] || 0) + 1;
-                          });
-                          return Object.entries(counts).map(([name, value]) => ({
-                            name,
-                            value
-                          }));
-                        })()}
-                        cx="50%"
-                        cy="50%"
-                        labelLine={false}
-                        label={({ name, percent }) =>
-                          `${name} ${(percent * 100).toFixed(0)}%`}
-                        outerRadius={100}
-                        fill="#8884d8"
-                        dataKey="value"
-                      >
-                        {(() => {
-                          const colors = {
-                            Reported: '#475569',
-                            Assigned: '#2563eb',
-                            'En Route': '#7c3aed',
-                            'On Scene': '#d97706',
-                            Resolved: '#16a34a'
-                          };
-                          const counts = {};
-                          incidents.forEach((i) => {
-                            counts[i.status] = (counts[i.status] || 0) + 1;
-                          });
-                          return Object.entries(counts).map(([status]) => (
-                            <Cell
-                              key={`cell-${status}`}
-                              fill={colors[status] || '#64748b'}
-                            />
-                          ));
-                        })()}
-                      </Pie>
-                    </PieChart>
-                  </ResponsiveContainer>
+                      </thead>
+                      <tbody>
+                        {incidents.length > 0 ? (
+                          incidents.slice(0, 5).map((incident) => (
+                            <tr key={incident.incidentId}>
+                              <td style={{ fontWeight: 500, color: 'var(--text-primary)' }}>{incident.type}</td>
+                              <td><SeverityBadge severity={incident.severity} /></td>
+                              <td title={incident.address} style={{ color: 'var(--text-secondary)', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{incident.address}</td>
+                              <td><StatusBadge status={incident.status} /></td>
+                              <td style={{ color: 'var(--text-muted)', fontSize: 12, whiteSpace: 'nowrap' }}>{formatDate(incident.createdAt)}</td>
+                            </tr>
+                          ))
+                        ) : (
+                          <tr className="rd-table-empty">
+                            <td colSpan="5">No jobs assigned yet</td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
 
                 {/* Notifications Panel */}
-                <div className="activity-card">
-                  <h2 className="card-title">Notifications</h2>
-                  <div className="activity-list">
+                <div className="rd-card">
+                  <div className="rd-card-header">
+                    <h2 className="rd-card-title">Notifications</h2>
+                    {unreadCount > 0 && (
+                      <span className="rd-card-meta" style={{ color: '#ef4444' }}>{unreadCount} unread</span>
+                    )}
+                  </div>
+                  <div className="rd-notif-list">
                     {notifications.length > 0 ? (
-                      notifications.map((notif) => (
+                      notifications.slice(0, 6).map((notif) => (
                         <div
                           key={notif.notificationId}
-                          className={`activity-item ${
-                            !notif.isRead ? 'unread' : ''
-                          }`}
+                          className={`rd-notif-item ${!notif.isRead ? 'unread' : ''}`}
                           onClick={() => markNotificationRead(notif.notificationId)}
                         >
-                          <div
-                            className="activity-dot"
-                            style={{
-                              backgroundColor: notif.isRead ? '#475569' : '#c0392b'
-                            }}
-                          ></div>
-                          <div className="activity-content">
-                            <div className="activity-text">{notif.message}</div>
-                            <div className="activity-time">
-                              {formatDate(notif.createdAt)}
-                            </div>
+                          <span className={`rd-notif-dot ${!notif.isRead ? 'unread' : 'read'}`}></span>
+                          <div className="rd-notif-body">
+                            <div className="rd-notif-msg">{notif.message}</div>
+                            <div className="rd-notif-time">{formatDate(notif.createdAt)}</div>
                           </div>
                         </div>
                       ))
                     ) : (
-                      <div className="no-notifications">No notifications yet</div>
+                      <div className="rd-notif-empty">No notifications yet</div>
                     )}
                   </div>
                 </div>
@@ -761,326 +624,525 @@ const ResponderDashboard = ({ onLogout, user, userData }) => {
             </>
           )}
 
-          {/* My Assigned Job */}
+          {/* ══════════════════════════════
+              ACTIVE JOB TAB
+              ══════════════════════════════ */}
           {activeTab === 'assigned-job' && (
             <>
+              <div className="rd-page-header">
+                <h1 className="rd-page-title">Active Job</h1>
+                <p className="rd-page-subtitle">
+                  {activeIncident
+                    ? 'Your current emergency assignment'
+                    : 'No active assignment at this time'}
+                </p>
+              </div>
+
               {activeIncident ? (
-                <div className="form-card full-width">
-                  <h2 className="card-title">Active Assignment Details</h2>
-                  <div className="incident-details">
-                    <div className="detail-row">
-                      <span className="detail-label">Type</span>
-                      <span className="detail-value">{activeIncident.type}</span>
+                <div className="rd-card">
+                  {/* Assignment header */}
+                  <div className="rd-assignment-header">
+                    <div className="rd-assignment-title-block">
+                      <div className="rd-assignment-eyebrow">Active Assignment</div>
+                      <div className="rd-assignment-title">{activeIncident.type}</div>
+                      <div className="rd-assignment-location">
+                        <IconMapPin /> {activeIncident.address}
+                      </div>
                     </div>
-                    <div className="detail-row">
-                      <span className="detail-label">Severity</span>
-                      <span
-                        className={`badge badge-${activeIncident.severity.toLowerCase()}`}
-                      >
-                        {activeIncident.severity}
-                      </span>
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                      <SeverityBadge severity={activeIncident.severity} />
+                      <StatusBadge status={activeIncident.status} />
                     </div>
-                    <div className="detail-row">
-                      <span className="detail-label">Address</span>
-                      <span className="detail-value">{activeIncident.address}</span>
+                  </div>
+
+                  {/* Status progression */}
+                  <StatusProgression currentStatus={activeIncident.status} />
+
+                  {/* Details grid */}
+                  <div className="rd-detail-grid">
+                    <div className="rd-detail-item">
+                      <span className="rd-detail-label">Incident Type</span>
+                      <span className="rd-detail-value" style={{ fontWeight: 600 }}>{activeIncident.type}</span>
                     </div>
-                    <div className="detail-row">
-                      <span className="detail-label">Reporter Name</span>
-                      <span className="detail-value">
-                        {activeIncident.reporterName}
-                      </span>
+                    <div className="rd-detail-item">
+                      <span className="rd-detail-label">Severity</span>
+                      <div style={{ marginTop: 3 }}><SeverityBadge severity={activeIncident.severity} /></div>
                     </div>
-                    <div className="detail-row">
-                      <span className="detail-label">Description</span>
-                      <span className="detail-value">
-                        {activeIncident.description}
-                      </span>
+                    <div className="rd-detail-item">
+                      <span className="rd-detail-label">Current Status</span>
+                      <div style={{ marginTop: 3 }}><StatusBadge status={activeIncident.status} /></div>
                     </div>
-                    <div className="detail-row">
-                      <span className="detail-label">Current Status</span>
-                      <span
-                        className={`status-badge status-${activeIncident.status
-                          .toLowerCase()
-                          .replace(' ', '-')}`}
-                      >
-                        {activeIncident.status}
-                      </span>
+                    <div className="rd-detail-item">
+                      <span className="rd-detail-label">Reported By</span>
+                      <span className="rd-detail-value">{activeIncident.reporterName}</span>
                     </div>
-                    {activeIncident.photoUrl && (
-                      <div className="detail-row">
-                        <span className="detail-label">Photo</span>
-                        <img
-                          src={activeIncident.photoUrl}
-                          alt="Incident"
-                          className="incident-photo"
+                    <div className="rd-detail-item full-width">
+                      <span className="rd-detail-label">Location</span>
+                      <span className="rd-detail-value">{activeIncident.address}</span>
+                    </div>
+                    <div className="rd-detail-item full-width">
+                      <span className="rd-detail-label">Description</span>
+                      <span className="rd-detail-value" style={{ lineHeight: 1.6 }}>{activeIncident.description}</span>
+                    </div>
+                    {getIncidentImageUrl(activeIncident) && (
+                      <div className="rd-detail-item full-width">
+                        <span className="rd-detail-label">Photo</span>
+                        <IncidentImage
+                          incident={activeIncident}
+                          className="rd-incident-photo"
+                          alt="Incident photo"
                         />
                       </div>
                     )}
                   </div>
 
+                  <div className="rd-divider"></div>
+
                   {/* Status Update Panel */}
-                  <div className="status-update-panel">
-                    <h3 className="status-logs-title">Update Status</h3>
-                    <div style={{ display: 'flex', gap: '12px', marginBottom: '20px' }}>
+                  <div className="rd-status-panel">
+                    <div className="rd-status-panel-label">Update Status</div>
+                    <div className="rd-status-current">
+                      Currently: <StatusBadge status={activeIncident.status} />
+                    </div>
+                    <div className="rd-status-actions">
                       {activeIncident.status === 'Assigned' && (
                         <button
-                          className="submit-btn"
+                          className="rd-btn rd-btn-primary"
                           onClick={() => handleUpdateStatus('En Route')}
+                          disabled={updatingStatus}
                         >
-                          I Am En Route
+                          {updatingStatus ? 'Updating…' : 'I Am En Route'}
                         </button>
                       )}
                       {activeIncident.status === 'En Route' && (
                         <button
-                          className="submit-btn"
+                          className="rd-btn rd-btn-primary"
                           onClick={() => handleUpdateStatus('On Scene')}
+                          disabled={updatingStatus}
                         >
-                          I Am On Scene
+                          {updatingStatus ? 'Updating…' : 'I Am On Scene'}
                         </button>
                       )}
                       {activeIncident.status === 'On Scene' && (
                         <button
-                          className="submit-btn"
-                          onClick={() => handleUpdateStatus('Resolved')}
+                          className="rd-btn rd-btn-action"
+                          onClick={() => setShowResolveModal(true)}
+                          disabled={updatingStatus}
                         >
                           Mark As Resolved
                         </button>
                       )}
                     </div>
+                  </div>
 
-                    <div className="profile-field">
-                      <span className="field-label">Field Notes</span>
-                      <textarea
-                        className="form-input textarea"
-                        value={fieldNotes}
-                        onChange={(e) => setFieldNotes(e.target.value)}
-                        placeholder="Enter notes here..."
-                      ></textarea>
-                    </div>
-                    <div style={{ marginTop: '12px' }}>
-                      <button className="submit-btn" onClick={handleSaveNotes}>
-                        Save Notes
+                  {/* Field Notes */}
+                  <div className="rd-notes-section">
+                    <label className="rd-notes-label">Field Notes</label>
+                    <textarea
+                      className="rd-textarea"
+                      value={fieldNotes}
+                      onChange={(e) => setFieldNotes(e.target.value)}
+                      placeholder="Enter observations, updates, or field notes here…"
+                      rows={4}
+                    />
+                    <div style={{ marginTop: 10 }}>
+                      <button
+                        className="rd-btn rd-btn-ghost"
+                        onClick={handleSaveNotes}
+                        disabled={!fieldNotes.trim() || savingNotes}
+                      >
+                        {savingNotes ? 'Saving…' : 'Save Notes'}
                       </button>
                     </div>
                   </div>
 
-                  {/* Status History */}
-                  <h3 className="status-logs-title">Status History</h3>
-                  <div className="status-logs">
-                    {statusLogs.length > 0 ? (
+                  <div className="rd-divider"></div>
+
+                  {/* Status History Timeline */}
+                  <div className="rd-section-label">Status History</div>
+                  <div className="rd-timeline">
+                    {statusLogs.length === 0 ? (
+                      <div className="rd-timeline-empty">No status updates recorded yet</div>
+                    ) : (
                       statusLogs.map((log) => (
-                        <div key={log.logId} className="status-log-item">
-                          <span
-                            className={`badge badge-${log.status.toLowerCase().replace(
-                              ' ',
-                              '-'
-                            )}`}
-                          >
-                            {log.status}
-                          </span>
-                          <span className="log-notes">{log.notes}</span>
-                          <span className="log-time">{formatDate(log.timestamp)}</span>
+                        <div key={log.logId} className="rd-timeline-item">
+                          <div className="rd-timeline-spine">
+                            <div className="rd-timeline-dot"></div>
+                            <div className="rd-timeline-line"></div>
+                          </div>
+                          <div className="rd-timeline-body">
+                            <div className="rd-timeline-status">
+                              <StatusBadge status={log.status} />
+                            </div>
+                            {log.notes && (
+                              <div className="rd-timeline-notes">{log.notes}</div>
+                            )}
+                            <div className="rd-timeline-time">{formatDate(log.timestamp)}</div>
+                          </div>
                         </div>
                       ))
-                    ) : (
-                      <div className="no-notifications">No status updates yet</div>
                     )}
                   </div>
                 </div>
               ) : (
-                <div className="table-card">
-                  <h2 className="card-title">No Active Assignment</h2>
-                  <div className="no-notifications">
-                    You don't have any active assignments right now.
+                <div className="rd-card">
+                  <div className="rd-empty-state">
+                    <div className="rd-empty-icon">
+                      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#475569" strokeWidth="2" strokeLinecap="round">
+                        <circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16v.01"/>
+                      </svg>
+                    </div>
+                    <div className="rd-empty-title">No Active Assignment</div>
+                    <div className="rd-empty-sub">
+                      You don't have any active assignments right now. The dispatcher will assign you to an incident when needed.
+                    </div>
                   </div>
                 </div>
               )}
             </>
           )}
 
-          {/* Job History */}
+          {/* ══════════════════════════════
+              JOB HISTORY TAB
+              ══════════════════════════════ */}
           {activeTab === 'job-history' && (
-            <div className="table-card">
-              <h2 className="card-title">Job History</h2>
-              <table className="reports-table">
-                <thead>
-                  <tr>
-                    <th>Type</th>
-                    <th>Severity</th>
-                    <th>Address</th>
-                    <th>Status</th>
-                    <th>Date</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {incidents.length > 0 ? (
-                    incidents.map((incident, index) => (
-                      <tr
-                        key={incident.incidentId}
-                        className={index % 2 === 1 ? 'table-row-alt' : ''}
-                      >
-                        <td>{incident.type}</td>
-                        <td>
-                          <span
-                            className={`badge badge-${incident.severity.toLowerCase()}`}
-                          >
-                            {incident.severity}
-                          </span>
-                        </td>
-                        <td>{incident.address}</td>
-                        <td>
-                          <span
-                            className={`status-badge status-${incident.status
-                              .toLowerCase()
-                              .replace(' ', '-')}`}
-                          >
-                            {incident.status}
-                          </span>
-                        </td>
-                        <td>{formatDate(incident.createdAt)}</td>
-                      </tr>
-                    ))
-                  ) : (
-                    <tr>
-                      <td colSpan="5">No jobs assigned yet</td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          )}
+            <>
+              <div className="rd-page-header">
+                <h1 className="rd-page-title">Job History</h1>
+                <p className="rd-page-subtitle">
+                  {incidents.length} total assignment{incidents.length !== 1 ? 's' : ''} &nbsp;·&nbsp;
+                  <span style={{ color: theme === 'light' ? '#15803d' : '#4ade80', fontWeight: 600 }}>{stats.completed} resolved</span>
+                </p>
+              </div>
 
-          {/* My Profile */}
-          {activeTab === 'profile' && (
-            <div className="form-card full-width">
-              <h2 className="card-title">My Profile</h2>
-              {profileSuccess && (
-                <div className="success-banner">{profileSuccess}</div>
-              )}
-              {!editingProfile ? (
-                <div className="profile-content">
-                  <div className="profile-field">
-                    <span className="field-label">Name</span>
-                    <span className="field-value">{userData?.name}</span>
-                  </div>
-                  <div className="profile-field">
-                    <span className="field-label">Email</span>
-                    <span className="field-value">{user?.email}</span>
-                  </div>
-                  <div className="profile-field">
-                    <span className="field-label">Phone</span>
-                    <span className="field-value">
-                      {userData?.phone || 'Not set'}
-                    </span>
-                  </div>
-                  <div className="profile-field">
-                    <span className="field-label">Speciality</span>
-                    <span className="field-value">
-                      {userData?.speciality || 'Not set'}
-                    </span>
-                  </div>
-                  <div className="profile-field">
-                    <span className="field-label">Role</span>
-                    <span className="field-value">Responder</span>
-                  </div>
-                  <button
-                    className="edit-btn"
-                    onClick={() => {
-                      setProfileForm({
-                        name: userData?.name || '',
-                        phone: userData?.phone || '',
-                        speciality: userData?.speciality || ''
-                      });
-                      setEditingProfile(true);
-                    }}
-                  >
-                    Edit Profile
-                  </button>
-                </div>
-              ) : (
-                <form onSubmit={handleSaveProfile} className="profile-content">
-                  <div className="profile-field">
-                    <span className="field-label">Name</span>
-                    <input
-                      type="text"
-                      className="form-input"
-                      value={profileForm.name}
-                      onChange={(e) =>
-                        setProfileForm({ ...profileForm, name: e.target.value })
-                      }
-                    />
-                  </div>
-                  <div className="profile-field">
-                    <span className="field-label">Phone</span>
-                    <input
-                      type="text"
-                      className="form-input"
-                      value={profileForm.phone}
-                      onChange={(e) =>
-                        setProfileForm({ ...profileForm, phone: e.target.value })
-                      }
-                    />
-                  </div>
-                  <div className="profile-field">
-                    <span className="field-label">Speciality</span>
-                    <input
-                      type="text"
-                      className="form-input"
-                      value={profileForm.speciality}
-                      onChange={(e) =>
-                        setProfileForm({ ...profileForm, speciality: e.target.value })
-                      }
-                    />
-                  </div>
-                  <div style={{ display: 'flex', gap: '12px', marginTop: '12px' }}>
-                    <button type="submit" className="submit-btn">
-                      Save Changes
-                    </button>
+              {/* Filter & Search Bar */}
+              <div className="rd-filter-bar">
+                <div className="rd-search-wrap">
+                  <svg className="rd-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="11" cy="11" r="8" />
+                    <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                  </svg>
+                  <input
+                    type="text"
+                    className="rd-search-input"
+                    placeholder="Search by type, location, ID, or keywords…"
+                    value={historySearch}
+                    onChange={(e) => setHistorySearch(e.target.value)}
+                    aria-label="Search job history"
+                  />
+                  {historySearch && (
                     <button
-                      type="button"
-                      className="cancel-btn"
-                      onClick={() => setEditingProfile(false)}
+                      className="rd-search-clear"
+                      onClick={() => setHistorySearch('')}
+                      aria-label="Clear search"
                     >
-                      Cancel
+                      ×
                     </button>
-                  </div>
-                </form>
-              )}
-            </div>
+                  )}
+                </div>
+
+                <div className="rd-filter-group">
+                  <select
+                    className="rd-select"
+                    value={historyStatusFilter}
+                    onChange={(e) => setHistoryStatusFilter(e.target.value)}
+                    aria-label="Filter by status"
+                  >
+                    <option value="all">All Statuses</option>
+                    <option value="Resolved">Resolved</option>
+                    <option value="On Scene">On Scene</option>
+                    <option value="En Route">En Route</option>
+                    <option value="Assigned">Assigned</option>
+                  </select>
+
+                  <select
+                    className="rd-select"
+                    value={historySeverityFilter}
+                    onChange={(e) => setHistorySeverityFilter(e.target.value)}
+                    aria-label="Filter by severity"
+                  >
+                    <option value="all">All Severities</option>
+                    <option value="Critical">Critical</option>
+                    <option value="Serious">Serious</option>
+                    <option value="Minor">Minor</option>
+                  </select>
+
+                  {isHistoryFiltered && (
+                    <button
+                      className="rd-btn rd-btn-ghost rd-filter-reset-btn"
+                      onClick={resetHistoryFilters}
+                    >
+                      Reset Filters
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div className="rd-card">
+                <div className="rd-table-wrap">
+                  <table className="rd-table">
+                    <thead>
+                      <tr>
+                        <th>Type</th>
+                        <th>Severity</th>
+                        <th>Location</th>
+                        <th>Status</th>
+                        <th>Date</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredHistory.length > 0 ? (
+                        filteredHistory.map((incident) => (
+                          <tr key={incident.incidentId}>
+                            <td style={{ fontWeight: 500, color: 'var(--text-primary)' }}>{incident.type}</td>
+                            <td><SeverityBadge severity={incident.severity} /></td>
+                            <td title={incident.address} style={{ color: 'var(--text-secondary)', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{incident.address}</td>
+                            <td><StatusBadge status={incident.status} /></td>
+                            <td style={{ color: 'var(--text-muted)', fontSize: 12, whiteSpace: 'nowrap' }}>{formatDate(incident.createdAt)}</td>
+                          </tr>
+                        ))
+                      ) : incidents.length > 0 ? (
+                        <tr className="rd-table-empty">
+                          <td colSpan="5">
+                            <div className="rd-empty-filtered">
+                              <p>No assignments match your search or filter criteria.</p>
+                              <button
+                                className="rd-btn rd-btn-secondary"
+                                onClick={resetHistoryFilters}
+                                style={{ marginTop: 8 }}
+                              >
+                                Clear Filters
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ) : (
+                        <tr className="rd-table-empty">
+                          <td colSpan="5">No jobs assigned yet</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </>
           )}
 
-          {/* Notifications */}
-          {activeTab === 'notifications' && (
-            <div className="activity-card">
-              <h2 className="card-title">Notifications</h2>
-              <div className="activity-list">
-                {notifications.length > 0 ? (
-                  notifications.map((notif) => (
-                    <div
-                      key={notif.notificationId}
-                      className={`activity-item ${!notif.isRead ? 'unread' : ''}`}
-                      onClick={() => markNotificationRead(notif.notificationId)}
-                    >
-                      <div
-                        className="activity-dot"
-                        style={{
-                          backgroundColor: notif.isRead ? '#475569' : '#c0392b'
-                        }}
-                      ></div>
-                      <div className="activity-content">
-                        <div className="activity-text">{notif.message}</div>
-                        <div className="activity-time">{formatDate(notif.createdAt)}</div>
+          {/* ══════════════════════════════
+              PROFILE TAB
+              ══════════════════════════════ */}
+          {activeTab === 'profile' && (
+            <>
+              <div className="rd-page-header">
+                <h1 className="rd-page-title">My Profile</h1>
+                <p className="rd-page-subtitle">View and update your responder information</p>
+              </div>
+              <div className="rd-card">
+                {profileSuccess && (
+                  <div className="rd-success-banner">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                      <polyline points="20 6 9 17 4 12"/>
+                    </svg>
+                    {profileSuccess}
+                  </div>
+                )}
+
+                {!editingProfile ? (
+                  <>
+                    <div className="rd-profile-grid">
+                      <div className="rd-profile-field">
+                        <span className="rd-profile-label">Full Name</span>
+                        <span className="rd-profile-value">{userData?.name || 'Not provided'}</span>
+                      </div>
+                      <div className="rd-profile-field">
+                        <span className="rd-profile-label">Email</span>
+                        <span className="rd-profile-value">{user?.email}</span>
+                      </div>
+                      <div className="rd-profile-field">
+                        <span className="rd-profile-label">Phone</span>
+                        <span className="rd-profile-value">{userData?.phone || 'Not set'}</span>
+                      </div>
+                      <div className="rd-profile-field">
+                        <span className="rd-profile-label">Speciality</span>
+                        <span className="rd-profile-value">{userData?.speciality || 'Not set'}</span>
+                      </div>
+                      <div className="rd-profile-field">
+                        <span className="rd-profile-label">Role</span>
+                        <span className="rd-profile-value">Responder</span>
+                      </div>
+                      <div className="rd-profile-field">
+                        <span className="rd-profile-label">Availability</span>
+                        <div style={{ marginTop: 3 }}>
+                          <span className={`rd-badge ${userData?.isAvailable ? 'rd-badge-resolved' : 'rd-badge-reported'}`}>
+                            {userData?.isAvailable ? 'Available' : 'Unavailable'}
+                          </span>
+                        </div>
                       </div>
                     </div>
-                  ))
+                    <button
+                      className="rd-btn rd-btn-primary"
+                      onClick={() => {
+                        setProfileForm({
+                          name: userData?.name || '',
+                          phone: userData?.phone || '',
+                          speciality: userData?.speciality || ''
+                        });
+                        setEditingProfile(true);
+                      }}
+                    >
+                      Edit Profile
+                    </button>
+                  </>
                 ) : (
-                  <div className="no-notifications">No notifications yet</div>
+                  <form onSubmit={handleSaveProfile}>
+                    <div className="rd-form-field">
+                      <label className="rd-form-label">Full Name</label>
+                      <input
+                        type="text"
+                        className="rd-input"
+                        value={profileForm.name}
+                        onChange={(e) => setProfileForm({ ...profileForm, name: e.target.value })}
+                        placeholder="Your full name"
+                      />
+                    </div>
+                    <div className="rd-form-field">
+                      <label className="rd-form-label">Phone</label>
+                      <input
+                        type="tel"
+                        className="rd-input"
+                        value={profileForm.phone}
+                        onChange={(e) => setProfileForm({ ...profileForm, phone: e.target.value })}
+                        placeholder="+27 00 000 0000"
+                      />
+                    </div>
+                    <div className="rd-form-field">
+                      <label className="rd-form-label">Speciality</label>
+                      <input
+                        type="text"
+                        className="rd-input"
+                        value={profileForm.speciality}
+                        onChange={(e) => setProfileForm({ ...profileForm, speciality: e.target.value })}
+                        placeholder="e.g. Paramedic, Firefighter, Police"
+                      />
+                    </div>
+                    <div className="rd-form-actions">
+                      <button type="submit" className="rd-btn rd-btn-primary">Save Changes</button>
+                      <button
+                        type="button"
+                        className="rd-btn rd-btn-secondary"
+                        onClick={() => setEditingProfile(false)}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </form>
                 )}
               </div>
-            </div>
+            </>
           )}
+
+          {/* ══════════════════════════════
+              NOTIFICATIONS TAB
+              ══════════════════════════════ */}
+          {activeTab === 'notifications' && (
+            <>
+              <div className="rd-page-header">
+                <h1 className="rd-page-title">Notifications</h1>
+                <p className="rd-page-subtitle">In-app updates about your assignments.</p>
+              </div>
+              <NotificationCenter
+                notifications={notifications}
+                unreadCount={unreadCount}
+                loading={notifLoading}
+                error={notifError}
+                actionError={notifActionError}
+                online={notifOnline}
+                fromCache={notifFromCache}
+                onMarkRead={markRead}
+                onMarkAllRead={markAllRead}
+                onOpen={openNotification}
+                formatDate={formatDate}
+                emptyHint="You will be notified here when a dispatcher assigns you an incident."
+              />
+            </>
+          )}
+
+          {/* ══════════════════════════════
+              SETTINGS TAB
+              ══════════════════════════════ */}
+          {activeTab === 'settings' && (
+            <>
+              <div className="rd-page-header">
+                <h1 className="rd-page-title">Settings</h1>
+                <p className="rd-page-subtitle">Manage your Alert24 account preferences.</p>
+              </div>
+
+              <div className="settings-page">
+                <div className="settings-section">
+                  <div className="settings-section-title">Appearance</div>
+                  <div className="settings-section-subtitle">
+                    Choose how Alert24 looks for you. Your preference is saved to your account and synced across devices.
+                  </div>
+                  <div className="theme-picker" role="group" aria-label="Theme selection">
+                    <button
+                      id="rd-theme-light-btn"
+                      className={`theme-picker-btn ${theme === 'light' ? 'active' : ''}`}
+                      onClick={() => onThemeChange('light')}
+                      aria-pressed={theme === 'light'}
+                    >
+                      <span className="theme-picker-icon">☀</span>
+                      Light
+                    </button>
+                    <button
+                      id="rd-theme-dark-btn"
+                      className={`theme-picker-btn ${theme === 'dark' ? 'active' : ''}`}
+                      onClick={() => onThemeChange('dark')}
+                      aria-pressed={theme === 'dark'}
+                    >
+                      <span className="theme-picker-icon">🌙</span>
+                      Dark
+                    </button>
+                  </div>
+                  <div className="theme-current-label">
+                    Currently using: <strong>{theme === 'dark' ? 'Dark Mode' : 'Light Mode'}</strong>
+                  </div>
+                </div>
+
+                <div className="settings-section">
+                  <div className="settings-section-title">Account</div>
+                  <div className="settings-divider"></div>
+                  <div className="settings-row">
+                    <div>
+                      <div className="settings-row-label">Email address</div>
+                      <div className="settings-row-desc">Your login email</div>
+                    </div>
+                    <span className="settings-row-value">{user?.email}</span>
+                  </div>
+                  <div className="settings-row">
+                    <div>
+                      <div className="settings-row-label">Role</div>
+                      <div className="settings-row-desc">Your system access level</div>
+                    </div>
+                    <span className="settings-row-value">Responder</span>
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+
         </main>
       </div>
+
+      {/* ── Resolve Confirmation Modal ── */}
+      <ResolveIncidentModal
+        isOpen={showResolveModal && !!activeIncident}
+        activeIncident={activeIncident}
+        resolveNotes={resolveNotes}
+        setResolveNotes={setResolveNotes}
+        onClose={() => setShowResolveModal(false)}
+        onConfirm={(notes) => handleUpdateStatus('Resolved', notes)}
+        updatingStatus={updatingStatus}
+      />
     </div>
   );
 };

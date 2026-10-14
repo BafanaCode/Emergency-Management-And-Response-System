@@ -1,5 +1,5 @@
 // Import React hooks we need for state and side effects
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 
 // Import components
 import Dashboard from "./Dashboard";
@@ -16,9 +16,10 @@ import {
   signOut,
   onAuthStateChanged,
 } from "firebase/auth";
-import { doc, setDoc, serverTimestamp, onSnapshot } from "firebase/firestore";
+import { doc, setDoc, updateDoc, serverTimestamp, onSnapshot } from "firebase/firestore";
 
-// Import our styles
+// Import our styles (theme.css must be imported before App.css)
+import "./theme.css";
 import "./App.css";
 
 function App() {
@@ -58,59 +59,147 @@ function App() {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
-  // ----- SIDE EFFECT -----
-  // useEffect runs after the component first mounts.
+  // ----- THEME STATE -----
+  // Default to localStorage value if present, otherwise "dark".
+  // This must agree with the no-flash inline script in public/index.html.
+  const [theme, setTheme] = useState(() => {
+    try {
+      const saved = localStorage.getItem('alert24_theme');
+      return saved === 'light' || saved === 'dark' ? saved : 'dark';
+    } catch { return 'dark'; }
+  });
+
+  // ----- SIDE EFFECT — apply theme to <html> element -----
+  // Runs whenever theme changes; CSS variables cascade globally from here.
+  // Also writes to localStorage so the no-flash script picks it up on next load.
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    try { localStorage.setItem('alert24_theme', theme); } catch {}
+  }, [theme]);
+
+  // Ref holding active user document onSnapshot unsubscribe function
+  const userDocUnsubRef = useRef(null);
+  const isLoggingOutRef = useRef(false);
+
+  // ----- SIDE EFFECT — auth + user data listener -----
   // onAuthStateChanged listens for login/logout changes and keeps our `user` state in sync.
   useEffect(() => {
-    let unsubscribeUserDoc = null;
-
     const unsubscribeAuth = onAuthStateChanged(auth, async (currentUser) => {
+      // Always unsubscribe previous user doc listener before attaching a new one or handling logout
+      if (userDocUnsubRef.current) {
+        try {
+          userDocUnsubRef.current();
+        } catch (e) {
+          console.error("Error unsubscribing previous user doc listener:", e);
+        }
+        userDocUnsubRef.current = null;
+      }
+
+      if (!currentUser) {
+        setUser(null);
+        setUserData(null);
+        setLoadingRole(false);
+        setError("");
+        // Reset to dark when user logs out
+        setTheme("dark");
+        return;
+      }
+
+      // If a logout is currently in progress, do not attempt to load user data
+      if (isLoggingOutRef.current) {
+        return;
+      }
+
+      const currentUid = currentUser.uid;
       setUser(currentUser);
       setUserData(null);
       setError("");
       setLoadingRole(true);
 
-      if (currentUser) {
-        // Fetch user document from Firestore to get role
-        const userDocRef = doc(db, "users", currentUser.uid);
-        unsubscribeUserDoc = onSnapshot(
-          userDocRef,
-          (docSnap) => {
-            setLoadingRole(false);
-            if (docSnap.exists()) {
-              const data = docSnap.data();
-              setUserData(data);
+      // Fetch user document from Firestore to get role AND theme preference
+      const userDocRef = doc(db, "users", currentUid);
+      userDocUnsubRef.current = onSnapshot(
+        userDocRef,
+        (docSnap) => {
+          // Guard: Ignore if user has logged out, is logging out, or auth user has changed
+          if (isLoggingOutRef.current || !auth.currentUser || auth.currentUser.uid !== currentUid) {
+            return;
+          }
 
-              // Check role validity
-              if (!["reporter", "dispatcher", "responder"].includes(data.role)) {
-                setError("Access denied. Unauthorised role.");
-                signOut(auth);
-              }
+          setLoadingRole(false);
+          if (docSnap.exists()) {
+            const data = docSnap.data();
+            setUserData(data);
+
+            // Load saved theme preference — default to "dark" if not set
+            const savedTheme = data.themePreference;
+            if (savedTheme === "light" || savedTheme === "dark") {
+              setTheme(savedTheme);
             } else {
-              // User doc not found - for reporters, we created it on signup
-              // For others, account should have been created with createStaffAccount.js
-              setError("Access denied.");
+              setTheme("dark");
+            }
+
+            // Check role validity
+            if (!["reporter", "dispatcher", "responder"].includes(data.role)) {
+              setError("Access denied. Unauthorised role.");
+              if (userDocUnsubRef.current) {
+                try { userDocUnsubRef.current(); } catch (e) {}
+                userDocUnsubRef.current = null;
+              }
               signOut(auth);
             }
-          },
-          (err) => {
-            console.error("Error fetching user data:", err);
-            setLoadingRole(false);
-            setError("Error loading user data.");
+          } else {
+            // User doc not found - for reporters, we created it on signup
+            // For others, account should have been created with createStaffAccount.js
+            setError("Access denied.");
+            if (userDocUnsubRef.current) {
+              try { userDocUnsubRef.current(); } catch (e) {}
+              userDocUnsubRef.current = null;
+            }
+            signOut(auth);
           }
-        );
-      } else {
-        setLoadingRole(false);
-        setUserData(null);
-      }
+        },
+        (err) => {
+          // Guard: If user is logged out, logging out, or auth changed,
+          // permission-denied errors on defunct listeners during sign-out are expected.
+          // They must NOT be treated as application errors.
+          if (isLoggingOutRef.current || !auth.currentUser || auth.currentUser.uid !== currentUid) {
+            return;
+          }
+          console.error("Error fetching user data:", err);
+          setLoadingRole(false);
+          setError("Error loading user data.");
+        }
+      );
     });
 
-    // Clean up listeners
+    // Clean up listeners on unmount
     return () => {
       unsubscribeAuth();
-      if (unsubscribeUserDoc) unsubscribeUserDoc();
+      if (userDocUnsubRef.current) {
+        try { userDocUnsubRef.current(); } catch (e) {}
+        userDocUnsubRef.current = null;
+      }
     };
   }, []);
+
+  // ----- THEME HANDLER -----
+  // Called by Settings page in any dashboard. Updates state immediately (instant UI
+  // change via data-theme attribute) then persists to both localStorage (instant)
+  // and Firestore (cross-device sync).
+  async function handleThemeChange(newTheme) {
+    setTheme(newTheme);
+    try { localStorage.setItem('alert24_theme', newTheme); } catch {}
+    if (user) {
+      try {
+        await updateDoc(doc(db, "users", user.uid), {
+          themePreference: newTheme
+        });
+      } catch (err) {
+        console.error("Error saving theme preference:", err);
+      }
+    }
+  }
 
   // ----- HELPERS -----
   // Translate a Firebase error code into a friendly message
@@ -145,6 +234,7 @@ function App() {
     
     // Check password match
     if (password !== confirmPassword) {
+      setError("Passwords do not match. Please verify and try again.");
       return;
     }
     
@@ -208,11 +298,33 @@ function App() {
 
   // Sign the current user out
   async function handleLogout() {
+    isLoggingOutRef.current = true;
     setError("");
+
+    // 1. Immediately unsubscribe the Firestore user document listener
+    if (userDocUnsubRef.current) {
+      try {
+        userDocUnsubRef.current();
+      } catch (e) {
+        console.error("Error unsubscribing user doc listener on logout:", e);
+      }
+      userDocUnsubRef.current = null;
+    }
+
+    // 2. Clear user and session state synchronously
+    setUser(null);
+    setUserData(null);
+    setLoadingRole(false);
+
+    // 3. Complete Firebase sign out
     try {
       await signOut(auth);
     } catch (err) {
+      console.error("Error signing out:", err);
       setError(getFriendlyError(err.code));
+    } finally {
+      isLoggingOutRef.current = false;
+      setError("");
     }
   }
 
@@ -291,11 +403,11 @@ function App() {
   if (user && !isSigningUp && userData) {
     switch (userData.role) {
       case "reporter":
-        return <Dashboard onLogout={handleLogout} user={user} userData={userData} />;
+        return <Dashboard onLogout={handleLogout} user={user} userData={userData} theme={theme} onThemeChange={handleThemeChange} />;
       case "dispatcher":
-        return <DispatcherDashboard onLogout={handleLogout} user={user} userData={userData} />;
+        return <DispatcherDashboard onLogout={handleLogout} user={user} userData={userData} theme={theme} onThemeChange={handleThemeChange} />;
       case "responder":
-        return <ResponderDashboard onLogout={handleLogout} user={user} userData={userData} />;
+        return <ResponderDashboard onLogout={handleLogout} user={user} userData={userData} theme={theme} onThemeChange={handleThemeChange} />;
       default:
         return null; // Handled by error check earlier
     }
@@ -325,8 +437,8 @@ function App() {
           </h2>
 
           <p className="hero-subtext">
-            Real-time coordination for dispatch centres, municipalities,
-            and emergency services — built for the seconds that matter.
+            Real-time incident tracking and rapid dispatch coordination.
+            Built for emergency operations and response teams.
           </p>
 
           <div className="hero-stats">
@@ -581,7 +693,7 @@ function App() {
         </form>
 
         <p className="form-footer-note">
-          Alert24 &mdash; Emergency Management &amp; Response System
+          Alert24 Emergency Management &amp; Response System
         </p>
       </div>
     </div>

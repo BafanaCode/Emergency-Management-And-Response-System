@@ -1,0 +1,23 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Deny all by default
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+
+    // Incident photos uploaded during emergency reporting
+    match /incidents/{incidentTimestamp}/{fileName} {
+      // Authenticated users (reporters, dispatchers, responders) can read incident photos
+      allow read: if request.auth != null;
+
+      // Authenticated users can upload incident images:
+      // - Must be authenticated
+      // - Max upload size 10MB
+      // - Must have valid image MIME type
+      allow write: if request.auth != null
+                   && request.resource.size <= 10 * 1024 * 1024
+                   && request.resource.contentType.matches('image/.*');
+    }
+  }
+}

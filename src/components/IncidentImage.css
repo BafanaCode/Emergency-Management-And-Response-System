@@ -1,0 +1,93 @@
+/* ============================================================
+   Alert24 — Incident Image Component Styles
+   Seamlessly integrates with Alert24 design system & themes
+   ============================================================ */
+
+.incident-image-wrapper {
+  position: relative;
+  width: 100%;
+  display: block;
+}
+
+.incident-image-element {
+  display: block;
+  width: 100%;
+  transition: opacity 0.25s ease-in-out;
+}
+
+.incident-image-element.is-loading {
+  opacity: 0;
+  height: 0;
+  min-height: 0;
+  position: absolute;
+  pointer-events: none;
+}
+
+.incident-image-element.is-loaded {
+  opacity: 1;
+}
+
+/* Skeleton placeholder while image loads */
+.incident-image-skeleton {
+  width: 100%;
+  height: 180px;
+  background: var(--bg-surface-2, #1e293b);
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+  border-radius: var(--d-radius, 8px);
+  margin-top: 4px;
+  position: relative;
+  overflow: hidden;
+}
+
+.incident-image-skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.04) 50%,
+    transparent 100%
+  );
+  animation: incident-image-shimmer 1.6s infinite ease-in-out;
+}
+
+@keyframes incident-image-shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+/* Fallback state when image is genuinely unavailable */
+.incident-image-fallback {
+  width: 100%;
+  min-height: 120px;
+  max-height: 220px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: var(--bg-surface-2, rgba(30, 41, 59, 0.5));
+  border: 1px dashed var(--border, rgba(255, 255, 255, 0.15));
+  border-radius: var(--d-radius, 8px);
+  margin-top: 4px;
+  padding: 20px 16px;
+  color: var(--text-muted, #94a3b8);
+  user-select: none;
+}
+
+.incident-image-fallback-icon {
+  width: 28px;
+  height: 28px;
+  stroke: var(--text-muted, #64748b);
+  opacity: 0.8;
+}
+
+.incident-image-fallback-text {
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.2px;
+  color: var(--text-muted, #94a3b8);
+}
