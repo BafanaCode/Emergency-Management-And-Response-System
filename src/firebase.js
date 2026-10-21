@@ -4,17 +4,35 @@ import { getAuth, setPersistence, browserSessionPersistence } from "firebase/aut
 import { getFirestore } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 
-// Your Firebase project configuration
-// (You get this from the Firebase Console -> Project Settings -> Your apps)
+// Load configuration strictly from environment variables
+const isTestEnv = process.env.NODE_ENV === "test";
+
 const firebaseConfig = {
-  apiKey: process.env.REACT_APP_FIREBASE_API_KEY || "AIzaSyADF3IbBTUSU6IJFmQfYVSApeXT-SkQqFc",
-  authDomain: process.env.REACT_APP_FIREBASE_AUTH_DOMAIN || "alert24-a1601.firebaseapp.com",
-  projectId: process.env.REACT_APP_FIREBASE_PROJECT_ID || "alert24-a1601",
-  storageBucket: process.env.REACT_APP_FIREBASE_STORAGE_BUCKET || "alert24-a1601.firebasestorage.app",
-  messagingSenderId: process.env.REACT_APP_FIREBASE_MESSAGING_SENDER_ID || "898634364096",
-  appId: process.env.REACT_APP_FIREBASE_APP_ID || "1:898634364096:web:e09426324848ae04aa2925",
-  measurementId: process.env.REACT_APP_FIREBASE_MEASUREMENT_ID || "G-BM49N18NVT"
+  apiKey: process.env.REACT_APP_FIREBASE_API_KEY || (isTestEnv ? "test-api-key" : ""),
+  authDomain: process.env.REACT_APP_FIREBASE_AUTH_DOMAIN || (isTestEnv ? "test.firebaseapp.com" : ""),
+  projectId: process.env.REACT_APP_FIREBASE_PROJECT_ID || (isTestEnv ? "test-project" : ""),
+  storageBucket: process.env.REACT_APP_FIREBASE_STORAGE_BUCKET || (isTestEnv ? "test.appspot.com" : ""),
+  messagingSenderId: process.env.REACT_APP_FIREBASE_MESSAGING_SENDER_ID || (isTestEnv ? "000000000000" : ""),
+  appId: process.env.REACT_APP_FIREBASE_APP_ID || (isTestEnv ? "1:000:web:000" : ""),
+  measurementId: process.env.REACT_APP_FIREBASE_MEASUREMENT_ID || ""
 };
+
+// Validate that required environment variables are present in non-test runtime
+if (!isTestEnv) {
+  const missingKeys = [];
+  if (!firebaseConfig.apiKey) missingKeys.push("REACT_APP_FIREBASE_API_KEY");
+  if (!firebaseConfig.projectId) missingKeys.push("REACT_APP_FIREBASE_PROJECT_ID");
+  if (!firebaseConfig.authDomain) missingKeys.push("REACT_APP_FIREBASE_AUTH_DOMAIN");
+
+  if (missingKeys.length > 0) {
+    const errorMsg =
+      `[Alert24] Missing required Firebase configuration: ${missingKeys.join(", ")}. ` +
+      `Please create a .env file from .env.example with your Firebase credentials.`;
+    console.error(errorMsg);
+    throw new Error(errorMsg);
+  }
+}
+
 // Initialize the Firebase app with our config
 const app = initializeApp(firebaseConfig);
 

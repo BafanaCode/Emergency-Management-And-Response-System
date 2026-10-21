@@ -1,5 +1,6 @@
-import React from "react";
+import React, { useState } from "react";
 import { SeverityBadge, StatusBadge } from "../common/Badges";
+import { generateIncidentReportPDF } from "../../utils/pdfExport";
 
 const ReportsTab = ({
   reportsSearchQuery,
@@ -16,7 +17,10 @@ const ReportsTab = ({
   downloadPDF,
   downloadCSV,
   formatDate,
+  onExportIncidentPDF,
 }) => {
+  const [exportingId, setExportingId] = useState(null);
+  const [exportError, setExportError] = useState("");
   const hasActiveFilters =
     reportsSearchQuery ||
     statusFilter !== "All" ||
@@ -123,6 +127,12 @@ const ReportsTab = ({
           )}
         </div>
 
+        {exportError && (
+          <div className="dd-alert dd-alert-error" style={{ marginBottom: 12 }}>
+            {exportError}
+          </div>
+        )}
+
         <div className="dd-table-wrap">
           <table className="dd-table">
             <thead>
@@ -133,12 +143,13 @@ const ReportsTab = ({
                 <th>Address</th>
                 <th>Status</th>
                 <th>Date</th>
+                <th>Report</th>
               </tr>
             </thead>
             <tbody>
               {filteredIncidents.length === 0 ? (
                 <tr className="dd-empty-row">
-                  <td colSpan="6">No incidents match the selected filters</td>
+                  <td colSpan="7">No incidents match the selected filters</td>
                 </tr>
               ) : (
                 filteredIncidents.map((incident) => (
@@ -169,6 +180,40 @@ const ReportsTab = ({
                       }}
                     >
                       {formatDate(incident.createdAt)}
+                    </td>
+                    <td>
+                      <button
+                        type="button"
+                        className="dd-btn dd-btn-outline dd-btn-xs"
+                        onClick={async () => {
+                          if (exportingId) return;
+                          setExportError("");
+                          setExportingId(incident.incidentId);
+                          try {
+                            if (typeof onExportIncidentPDF === "function") {
+                              await onExportIncidentPDF(incident);
+                            } else {
+                              generateIncidentReportPDF({
+                                incident,
+                                statusLogs: [],
+                                userRole: "dispatcher",
+                                download: true,
+                              });
+                            }
+                          } catch (err) {
+                            console.error("Failed to export incident PDF:", err);
+                            setExportError(`Failed to export report for ${incident.incidentId || incident.type}.`);
+                          } finally {
+                            setExportingId(null);
+                          }
+                        }}
+                        disabled={exportingId === incident.incidentId}
+                        aria-busy={exportingId === incident.incidentId}
+                        style={{ fontSize: 11, padding: "3px 8px", whiteSpace: "nowrap" }}
+                        title={`Export official PDF report for ${incident.incidentId || incident.type}`}
+                      >
+                        {exportingId === incident.incidentId ? "Exporting…" : "📄 PDF Report"}
+                      </button>
                     </td>
                   </tr>
                 ))

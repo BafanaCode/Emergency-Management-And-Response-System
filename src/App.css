@@ -95,7 +95,7 @@ body {
   inset: 0;
   background-image: url('./images/image4.webp');
   background-size: cover;
-  background-position: center 30%;
+  background-position: center 52%;
   background-repeat: no-repeat;
   z-index: 0;
 }
@@ -242,7 +242,7 @@ body {
   display: flex;
   flex-direction: column;
   justify-content: center;
-  padding: 48px 40px;
+  padding: 28px 36px;
   background-color: var(--navy-900);
   border-left: 1px solid rgba(255, 255, 255, 0.07);
   overflow-y: auto;
@@ -256,19 +256,19 @@ body {
 
 /* Form panel brand mark */
 .card-header {
-  margin-bottom: 36px;
+  margin-bottom: 18px;
 }
 
 .form-brand {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin-bottom: 28px;
+  margin-bottom: 12px;
 }
 
 .form-brand .logo-shield {
-  width: 30px;
-  height: 30px;
+  width: 28px;
+  height: 28px;
 }
 
 .form-brand .logo-name {
@@ -279,17 +279,17 @@ body {
 }
 
 .form-heading {
-  font-size: 26px;
+  font-size: 24px;
   font-weight: 700;
   color: var(--white);
   letter-spacing: -0.02em;
-  margin-bottom: 6px;
+  margin-bottom: 4px;
 }
 
 .form-subheading {
-  font-size: 14px;
-  color: var(--gray-500);
-  line-height: 1.6;
+  font-size: 13.5px;
+  color: var(--gray-400);
+  line-height: 1.45;
 }
 
 /* Thin accent rule below header */
@@ -301,7 +301,7 @@ body {
 .auth-form {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 9px;
   animation: form-in 0.5s var(--ease-out) 0.1s both;
 }
 
@@ -314,11 +314,11 @@ body {
 .field-group {
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 3px;
 }
 
 .field-label {
-  font-size: 12.5px;
+  font-size: 11.5px;
   font-weight: 600;
   color: var(--gray-400);
   letter-spacing: 0.04em;
@@ -333,11 +333,11 @@ body {
 
 .input-icon {
   position: absolute;
-  left: 14px;
+  left: 13px;
   top: 50%;
   transform: translateY(-50%);
-  width: 17px;
-  height: 17px;
+  width: 16px;
+  height: 16px;
   pointer-events: none;
   opacity: 0.55;
   transition: opacity 0.2s var(--ease-in-out);
@@ -346,9 +346,9 @@ body {
 /* Input fields */
 .field-input {
   width: 100%;
-  height: 46px;
-  padding: 0 44px 0 42px;
-  font-size: 14.5px;
+  height: 42px;
+  padding: 0 40px 0 38px;
+  font-size: 14px;
   font-family: var(--font-sans);
   font-weight: 400;
   color: var(--gray-100);
@@ -359,6 +359,35 @@ body {
   transition: border-color 0.2s var(--ease-in-out),
               box-shadow    0.2s var(--ease-in-out),
               background    0.2s var(--ease-in-out);
+}
+
+.field-input.input-has-error {
+  border-color: #ef4444;
+  background-color: rgba(239, 68, 68, 0.06);
+}
+
+.field-input.input-has-error:focus {
+  border-color: #f87171;
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.25);
+}
+
+/* Field validation error message */
+.field-error-msg {
+  color: #f87171;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.35;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 2px;
+  animation: banner-in 0.2s var(--ease-out);
+}
+
+.field-error-msg::before {
+  content: '⚠';
+  font-size: 11px;
+  flex-shrink: 0;
 }
 
 .field-input::placeholder {
@@ -475,11 +504,11 @@ body {
 /* ── Buttons ────────────────────────────────────────────── */
 .btn {
   width: 100%;
-  height: 46px;
+  height: 44px;
   font-family: var(--font-sans);
-  font-size: 14px;
+  font-size: 13.5px;
   font-weight: 600;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
   border: none;
   border-radius: 8px;
@@ -547,9 +576,9 @@ body {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  margin-top: 18px;
-  font-size: 13.5px;
-  color: var(--gray-500);
+  margin-top: 12px;
+  font-size: 13px;
+  color: var(--gray-400);
 }
 
 .link-button {
@@ -574,23 +603,19 @@ body {
 
 /* ── Form section divider (for signup fields grouping) ──── */
 .form-section-label {
-  font-size: 11px;
+  font-size: 10.5px;
   font-weight: 600;
-  color: var(--gray-600);
+  color: var(--gray-500);
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  padding: 4px 0 2px;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  padding: 2px 0 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
   margin-top: 2px;
 }
 
 /* ── Footer note ─────────────────────────────────────────── */
 .form-footer-note {
-  margin-top: 24px;
-  text-align: center;
-  font-size: 11.5px;
-  color: var(--gray-600);
-  line-height: 1.6;
+  display: none;
 }
 
 /* ── Loading screen ──────────────────────────────────────── */
@@ -637,8 +662,8 @@ body {
 /* Large desktop — slightly wider form panel */
 @media (min-width: 1280px) {
   .auth-card {
-    flex: 0 0 460px;
-    padding: 56px 48px;
+    flex: 0 0 450px;
+    padding: 32px 40px;
   }
 }
 

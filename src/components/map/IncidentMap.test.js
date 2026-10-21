@@ -111,4 +111,26 @@ describe('IncidentMap', () => {
     });
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
+
+  test('role-specific permissions: Reporter and Responder views omit Assign button', () => {
+    // When onAssignIncident is not supplied (Reporter / Responder usage)
+    render(<IncidentMap incidents={incidents} formatDate={() => ''} onViewIncident={jest.fn()} />);
+    expect(screen.queryByText('Assign')).not.toBeInTheDocument();
+    expect(screen.getAllByText('View details')).toHaveLength(2);
+  });
+
+  test('role-specific permissions: Dispatcher view includes Assign button for Reported incidents only', () => {
+    const onAssign = jest.fn();
+    render(
+      <IncidentMap
+        incidents={incidents}
+        formatDate={() => ''}
+        onViewIncident={jest.fn()}
+        onAssignIncident={onAssign}
+      />
+    );
+    // Incidents: inc 'a' is Reported (has Assign), inc 'b' is Resolved (no Assign)
+    const assignButtons = screen.getAllByText('Assign');
+    expect(assignButtons).toHaveLength(1);
+  });
 });

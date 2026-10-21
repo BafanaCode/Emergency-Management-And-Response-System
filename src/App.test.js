@@ -285,3 +285,160 @@ describe('Alert24 Authentication & Logout Bug Fix Verification', () => {
     expect(screen.queryByText(/error loading user data/i)).not.toBeInTheDocument();
   });
 });
+
+describe('Alert24 Login and Signup Validation and UI Refinements', () => {
+  let authCallback;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    authModule.onAuthStateChanged.mockImplementation((auth, callback) => {
+      authCallback = callback;
+      return jest.fn();
+    });
+    authModule.signInWithEmailAndPassword.mockReset();
+    authModule.createUserWithEmailAndPassword.mockReset();
+  });
+
+  test('does not render repeated "Alert24 Emergency Management & Response System" line', () => {
+    render(<App />);
+    act(() => { authCallback(null); });
+    expect(screen.queryByText(/Alert24 Emergency Management & Response System/i)).not.toBeInTheDocument();
+  });
+
+  test('login: validates required fields on empty submit without calling Firebase', async () => {
+    render(<App />);
+    act(() => { authCallback(null); });
+
+    const submitBtn = screen.getByRole('button', { name: /access system/i });
+    fireEvent.click(submitBtn);
+
+    expect(screen.getByText('Please enter your email address and password.')).toBeInTheDocument();
+    expect(authModule.signInWithEmailAndPassword).not.toHaveBeenCalled();
+  });
+
+  test('login: validates invalid email format', async () => {
+    render(<App />);
+    act(() => { authCallback(null); });
+
+    const emailInput = screen.getByLabelText(/^email address$/i);
+    const passInput = screen.getByLabelText(/^password$/i);
+
+    fireEvent.change(emailInput, { target: { value: 'not-an-email' } });
+    fireEvent.change(passInput, { target: { value: 'validpass123' } });
+
+    fireEvent.click(screen.getByRole('button', { name: /access system/i }));
+
+    expect(screen.getByText('Please enter a valid email address.')).toBeInTheDocument();
+    expect(authModule.signInWithEmailAndPassword).not.toHaveBeenCalled();
+  });
+
+  test('login: clearing/editing a field clears its validation error', async () => {
+    render(<App />);
+    act(() => { authCallback(null); });
+
+    const emailInput = screen.getByLabelText(/^email address$/i);
+    fireEvent.change(emailInput, { target: { value: 'bademail' } });
+    fireEvent.click(screen.getByRole('button', { name: /access system/i }));
+
+    expect(screen.getByText('Please enter a valid email address.')).toBeInTheDocument();
+
+    // Type a fix
+    fireEvent.change(emailInput, { target: { value: 'good@example.com' } });
+    expect(screen.queryByText('Please enter a valid email address.')).not.toBeInTheDocument();
+  });
+
+  test('login: handles invalid credentials with safe, generic message', async () => {
+    const error = new Error('Auth error');
+    error.code = 'auth/invalid-credential';
+    authModule.signInWithEmailAndPassword.mockRejectedValueOnce(error);
+
+    render(<App />);
+    act(() => { authCallback(null); });
+
+    fireEvent.change(screen.getByLabelText(/^email address$/i), { target: { value: 'user@example.com' } });
+    fireEvent.change(screen.getByLabelText(/^password$/i), { target: { value: 'wrongpassword' } });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /access system/i }));
+    });
+
+    expect(screen.getByText('Invalid email or password. Please check your credentials and try again.')).toBeInTheDocument();
+  });
+
+  test('login: handles rate limiting (too-many-requests) and network errors', async () => {
+    const rateLimitError = new Error('Rate limit');
+    rateLimitError.code = 'auth/too-many-requests';
+    authModule.signInWithEmailAndPassword.mockRejectedValueOnce(rateLimitError);
+
+    render(<App />);
+    act(() => { authCallback(null); });
+
+    fireEvent.change(screen.getByLabelText(/^email address$/i), { target: { value: 'user@example.com' } });
+    fireEvent.change(screen.getByLabelText(/^password$/i), { target: { value: 'password123' } });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /access system/i }));
+    });
+
+    expect(screen.getByText(/too many failed attempts/i)).toBeInTheDocument();
+  });
+
+  test('signup: validates all required fields, passwords match, and length', async () => {
+    render(<App />);
+    act(() => { authCallback(null); });
+
+    // Switch to Register
+    fireEvent.click(screen.getByRole('button', { name: /register/i }));
+    expect(screen.getByRole('heading', { name: /create account/i })).toBeInTheDocument();
+
+    // Click submit empty
+    fireEvent.click(screen.getByRole('button', { name: /create account/i }));
+    expect(screen.getByText('Please enter your full name.')).toBeInTheDocument();
+    expect(authModule.createUserWithEmailAndPassword).not.toHaveBeenCalled();
+
+    // Fill name, leave email empty
+    fireEvent.change(screen.getByLabelText(/^full name$/i), { target: { value: 'Alice Smith' } });
+    fireEvent.click(screen.getByRole('button', { name: /create account/i }));
+    expect(screen.getByText('Please enter your email address.')).toBeInTheDocument();
+
+    // Fill valid email, short password
+    fireEvent.change(screen.getByLabelText(/^email address$/i), { target: { value: 'alice@example.com' } });
+    fireEvent.change(screen.getByLabelText(/^password$/i), { target: { value: '123' } });
+    fireEvent.change(screen.getByLabelText(/^confirm password$/i), { target: { value: '123' } });
+    fireEvent.click(screen.getByRole('button', { name: /create account/i }));
+    expect(screen.getByText('Password must be at least 6 characters long.')).toBeInTheDocument();
+
+    // Password mismatch
+    fireEvent.change(screen.getByLabelText(/^password$/i), { target: { value: 'password123' } });
+    fireEvent.change(screen.getByLabelText(/^confirm password$/i), { target: { value: 'different123' } });
+    fireEvent.click(screen.getByRole('button', { name: /create account/i }));
+    expect(screen.getByText('Passwords do not match. Please verify and try again.')).toBeInTheDocument();
+  });
+
+  test('signup: successful creation writes to Firestore, signs out, and shows success message', async () => {
+    const mockUser = { uid: 'new-user-123', email: 'alice@example.com' };
+    authModule.createUserWithEmailAndPassword.mockResolvedValueOnce({ user: mockUser });
+    firestoreModule.setDoc.mockResolvedValueOnce();
+
+    render(<App />);
+    act(() => { authCallback(null); });
+
+    fireEvent.click(screen.getByRole('button', { name: /register/i }));
+
+    fireEvent.change(screen.getByLabelText(/^full name$/i), { target: { value: 'Alice Smith' } });
+    fireEvent.change(screen.getByLabelText(/^email address$/i), { target: { value: 'alice@example.com' } });
+    fireEvent.change(screen.getByLabelText(/^phone number$/i), { target: { value: '+27 82 123 4567' } });
+    fireEvent.change(screen.getByLabelText(/^password$/i), { target: { value: 'securePass123' } });
+    fireEvent.change(screen.getByLabelText(/^confirm password$/i), { target: { value: 'securePass123' } });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /create account/i }));
+    });
+
+    expect(authModule.createUserWithEmailAndPassword).toHaveBeenCalledWith(auth, 'alice@example.com', 'securePass123');
+    expect(firestoreModule.setDoc).toHaveBeenCalled();
+    expect(authModule.signOut).toHaveBeenCalled();
+    expect(screen.getByText('Account created successfully. Please log in.')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /sign in/i })).toBeInTheDocument();
+  });
+});

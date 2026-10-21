@@ -9,9 +9,9 @@ import {
   updateDoc,
   serverTimestamp,
   writeBatch,
+  getDocs,
 } from "firebase/firestore";
-import { jsPDF } from "jspdf";
-import autoTable from "jspdf-autotable";
+import { generateIncidentReportPDF, generateBulkIncidentReportPDF } from "./utils/pdfExport";
 import {
   BarChart,
   Bar,
@@ -40,6 +40,7 @@ import {
   isResponderAssignable,
   friendlyFirestoreError,
 } from "./utils/incidentLifecycle";
+import { parseDateSafe, calculateResponseTimeTrend } from "./utils/responseTime";
 
 // Leaflet is loaded on demand: only dispatchers who open the map tab download it.
 const IncidentMap = lazy(() => import("./components/map/IncidentMap"));
@@ -179,6 +180,10 @@ const DispatcherDashboard = ({ onLogout, user, userData, theme, onThemeChange })
   const [responderAvailFilter, setResponderAvailFilter] = useState("All");
   const [reportsSearchQuery, setReportsSearchQuery] = useState("");
 
+  const [incidentsLoading, setIncidentsLoading] = useState(true);
+  const [allStatusLogs, setAllStatusLogs] = useState([]);
+  const [statusLogsLoading, setStatusLogsLoading] = useState(true);
+
   /* ── Firestore listeners ── */
   useEffect(() => {
     if (!user) return;
@@ -188,18 +193,42 @@ const DispatcherDashboard = ({ onLogout, user, userData, theme, onThemeChange })
       (snapshot) => {
         const data = snapshot.docs.map((doc) => ({ incidentId: doc.id, ...doc.data() }));
         data.sort((a, b) => {
-          if (!a.createdAt) return 1;
-          if (!b.createdAt) return -1;
-          return b.createdAt.toMillis() - a.createdAt.toMillis();
+          const timeA = a.createdAt?.toMillis ? a.createdAt.toMillis() : (parseDateSafe(a.createdAt)?.getTime() || 0);
+          const timeB = b.createdAt?.toMillis ? b.createdAt.toMillis() : (parseDateSafe(b.createdAt)?.getTime() || 0);
+          return timeB - timeA;
         });
         setIncidents(data);
+        setIncidentsLoading(false);
       },
       (err) => {
         console.error("Error fetching incidents:", err);
         setErrorBanner("Error loading incidents: " + err.message);
+        setIncidentsLoading(false);
       }
     );
-    return () => unsubscribe();
+    return () => {
+      if (typeof unsubscribe === "function") unsubscribe();
+    };
+  }, [user]);
+
+  useEffect(() => {
+    if (!user) return;
+    const q = collection(db, "statusLogs");
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        const data = snapshot.docs.map((doc) => ({ logId: doc.id, ...doc.data() }));
+        setAllStatusLogs(data);
+        setStatusLogsLoading(false);
+      },
+      (err) => {
+        console.error("Error fetching status logs for analytics:", err);
+        setStatusLogsLoading(false);
+      }
+    );
+    return () => {
+      if (typeof unsubscribe === "function") unsubscribe();
+    };
   }, [user]);
 
   useEffect(() => {
@@ -216,7 +245,9 @@ const DispatcherDashboard = ({ onLogout, user, userData, theme, onThemeChange })
         setErrorBanner("Error loading responders: " + err.message);
       }
     );
-    return () => unsubscribe();
+    return () => {
+      if (typeof unsubscribe === "function") unsubscribe();
+    };
   }, [user]);
 
   /* ── Helpers ── */
@@ -243,9 +274,9 @@ const DispatcherDashboard = ({ onLogout, user, userData, theme, onThemeChange })
         const logs = snapshot.docs
           .map((doc) => ({ logId: doc.id, ...doc.data() }))
           .sort((a, b) => {
-            if (!a.timestamp) return 1;
-            if (!b.timestamp) return -1;
-            return a.timestamp.toMillis() - b.timestamp.toMillis();
+            const timeA = a.timestamp?.toMillis ? a.timestamp.toMillis() : (parseDateSafe(a.timestamp)?.getTime() || 0);
+            const timeB = b.timestamp?.toMillis ? b.timestamp.toMillis() : (parseDateSafe(b.timestamp)?.getTime() || 0);
+            return timeA - timeB;
           });
         setStatusLogs(logs);
       },
@@ -392,8 +423,8 @@ const DispatcherDashboard = ({ onLogout, user, userData, theme, onThemeChange })
     }
 
     incidents.forEach((incident) => {
-      if (!incident.createdAt) return;
-      const incidentDate = incident.createdAt.toDate();
+      const incidentDate = parseDateSafe(incident.createdAt);
+      if (!incidentDate) return;
       const dateKey = `${incidentDate.getFullYear()}-${String(incidentDate.getMonth() + 1).padStart(2, "0")}-${String(incidentDate.getDate()).padStart(2, "0")}`;
       const dayIndex = last7Days.findIndex((d) => d.date === dateKey);
       if (dayIndex !== -1) last7Days[dayIndex].count++;
@@ -419,9 +450,21 @@ const DispatcherDashboard = ({ onLogout, user, userData, theme, onThemeChange })
       { name: "Critical", value: severityCounts.Critical },
     ];
 
-    const responseTimeData = last7Days.map((d) => ({ day: d.day, avgTime: 0 }));
+    const { trendData, hasData, totalMeasurements, averageOverall } = calculateResponseTimeTrend(
+      incidents,
+      allStatusLogs,
+      { days: 7, metric: "reportToOnScene", endDate: today }
+    );
 
-    return { incidentsPerDay: last7Days, incidentsByType: typeData, incidentsBySeverity: severityData, responseTimeTrend: responseTimeData };
+    return {
+      incidentsPerDay: last7Days,
+      incidentsByType: typeData,
+      incidentsBySeverity: severityData,
+      responseTimeTrend: trendData,
+      hasResponseTimeData: hasData,
+      totalResponseMeasurements: totalMeasurements,
+      averageResponseTimeOverall: averageOverall,
+    };
   };
 
   const analyticsData = prepareAnalyticsData();
@@ -444,13 +487,13 @@ const DispatcherDashboard = ({ onLogout, user, userData, theme, onThemeChange })
       if (dateFrom) {
         const fromDate = new Date(dateFrom);
         fromDate.setHours(0, 0, 0, 0);
-        const incidentDate = i.createdAt?.toDate();
+        const incidentDate = parseDateSafe(i.createdAt);
         if (incidentDate && incidentDate < fromDate) matchesDate = false;
       }
       if (dateTo) {
         const toDate = new Date(dateTo);
         toDate.setHours(23, 59, 59, 999);
-        const incidentDate = i.createdAt?.toDate();
+        const incidentDate = parseDateSafe(i.createdAt);
         if (incidentDate && incidentDate > toDate) matchesDate = false;
       }
       const q = reportsSearchQuery.trim().toLowerCase();
@@ -466,20 +509,18 @@ const DispatcherDashboard = ({ onLogout, user, userData, theme, onThemeChange })
   /* ── Exports ── */
   const downloadPDF = () => {
     const filtered = getFilteredIncidents();
-    const doc = new jsPDF();
-    doc.setFontSize(18);
-    doc.text("Alert24 Incident Report", 14, 22);
-    doc.setFontSize(12);
-    doc.text(`Generated: ${new Date().toLocaleString()}`, 14, 32);
-    const tableData = filtered.map((i) => [
-      i.type, i.severity, i.reporterName, i.address, i.status, formatDate(i.createdAt),
-    ]);
-    autoTable(doc, {
-      head: [["Type", "Severity", "Reporter", "Address", "Status", "Date"]],
-      body: tableData,
-      startY: 40,
+    generateBulkIncidentReportPDF({
+      incidents: filtered,
+      filterSummary: {
+        status: statusFilter,
+        severity: severityFilter,
+        dateFrom,
+        dateTo,
+        searchQuery: reportsSearchQuery,
+      },
+      generatedBy: userData?.name || user?.email || "Authorized Dispatcher",
+      download: true,
     });
-    doc.save("alert24-incident-report.pdf");
   };
 
   const downloadCSV = () => {
@@ -500,7 +541,22 @@ const DispatcherDashboard = ({ onLogout, user, userData, theme, onThemeChange })
     document.body.removeChild(link);
   };
 
-
+  const handleExportIncidentPDF = async (incident) => {
+    try {
+      const logsQuery = query(collection(db, "statusLogs"), where("incidentId", "==", incident.incidentId));
+      const snap = await getDocs(logsQuery);
+      const logs = snap.docs.map((d) => ({ logId: d.id, ...d.data() }));
+      generateIncidentReportPDF({
+        incident,
+        statusLogs: logs,
+        userRole: "dispatcher",
+        download: true,
+      });
+    } catch (err) {
+      console.error("Failed to export incident PDF report:", err);
+      throw err;
+    }
+  };
 
   /* ── Shared chart tooltip style ── */
   const chartTooltipStyle = {
@@ -846,17 +902,46 @@ const DispatcherDashboard = ({ onLogout, user, userData, theme, onThemeChange })
                 <div className="dd-card" style={{ marginBottom: 0 }}>
                   <div className="dd-card-header">
                     <h3 className="dd-card-title">Response Time Trend</h3>
-                    <span className="dd-card-meta">Avg minutes</span>
+                    <span className="dd-card-meta">
+                      {analyticsData.averageResponseTimeOverall != null
+                        ? `Avg ${analyticsData.averageResponseTimeOverall} mins`
+                        : "Avg minutes"}
+                    </span>
                   </div>
-                  <ResponsiveContainer width="100%" height={240}>
-                    <LineChart data={analyticsData.responseTimeTrend} margin={{ top: 4, right: 4, bottom: 0, left: -16 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} />
-                      <XAxis dataKey="day" stroke={axisStroke} tick={{ fontSize: 11 }} />
-                      <YAxis stroke={axisStroke} tick={{ fontSize: 11 }} />
-                      <Tooltip {...chartTooltipStyle} />
-                      <Line type="monotone" dataKey="avgTime" stroke="#22c55e" strokeWidth={2} dot={{ fill: "#22c55e", r: 3 }} />
-                    </LineChart>
-                  </ResponsiveContainer>
+                  {incidentsLoading || statusLogsLoading ? (
+                    <div className="dd-chart-empty" style={{ opacity: 0.7 }}>
+                      Loading response time data…
+                    </div>
+                  ) : analyticsData.hasResponseTimeData ? (
+                    <ResponsiveContainer width="100%" height={240}>
+                      <LineChart data={analyticsData.responseTimeTrend} margin={{ top: 4, right: 4, bottom: 0, left: -16 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} />
+                        <XAxis dataKey="day" stroke={axisStroke} tick={{ fontSize: 11 }} />
+                        <YAxis stroke={axisStroke} tick={{ fontSize: 11 }} unit="m" domain={[0, "auto"]} />
+                        <Tooltip
+                          {...chartTooltipStyle}
+                          formatter={(value) => [
+                            value !== null && value !== undefined ? `${value} min${value === 1 ? "" : "s"}` : "No data",
+                            "Avg Response Time",
+                          ]}
+                          labelFormatter={(label, payload) => {
+                            const item = payload?.[0]?.payload;
+                            return item?.fullDate ? `${label} (${item.fullDate})` : label;
+                          }}
+                        />
+                        <Line
+                          type="monotone"
+                          dataKey="avgTime"
+                          stroke="#22c55e"
+                          strokeWidth={2}
+                          dot={{ fill: "#22c55e", r: 3 }}
+                          connectNulls
+                        />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <div className="dd-chart-empty">No response time data recorded yet</div>
+                  )}
                 </div>
               </div>
             </>
@@ -1150,6 +1235,7 @@ const DispatcherDashboard = ({ onLogout, user, userData, theme, onThemeChange })
               downloadPDF={downloadPDF}
               downloadCSV={downloadCSV}
               formatDate={formatDate}
+              onExportIncidentPDF={handleExportIncidentPDF}
             />
           )}
 

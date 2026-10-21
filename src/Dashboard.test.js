@@ -29,6 +29,12 @@ jest.mock('./utils/imageUtils', () => ({
   uploadIncidentImage: jest.fn(),
 }));
 
+jest.mock('./components/map/IncidentMap', () => {
+  return function MockIncidentMap() {
+    return <div data-testid="reporter-incident-map">Reporter Incident Map Component</div>;
+  };
+});
+
 import Dashboard from './Dashboard';
 import { uploadIncidentImage, ImageProcessingError } from './utils/imageUtils';
 import { updateDoc, collection, doc, query, onSnapshot, writeBatch, serverTimestamp } from 'firebase/firestore';
@@ -151,5 +157,21 @@ describe('Reporter incident submission', () => {
     fireEvent.change(screen.getByLabelText(/Photo/), { target: { files: [big] } });
 
     expect(await screen.findByText(/too large/i)).toBeInTheDocument();
+  });
+
+  test('Reporter can access the Incident Map tab from navigation', async () => {
+    render(
+      <Dashboard
+        onLogout={jest.fn()}
+        user={{ uid: 'rep1' }}
+        userData={{ name: 'Reporter One', role: 'reporter' }}
+        theme="dark"
+        onThemeChange={jest.fn()}
+      />
+    );
+    const mapButton = screen.getByTitle('Incident Map');
+    expect(mapButton).toBeInTheDocument();
+    fireEvent.click(mapButton);
+    expect(await screen.findByTestId('reporter-incident-map')).toBeInTheDocument();
   });
 });

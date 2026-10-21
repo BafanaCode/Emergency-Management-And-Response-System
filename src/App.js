@@ -51,6 +51,9 @@ function App() {
   // Track success message for signup
   const [successMessage, setSuccessMessage] = useState('');
 
+  // Track field-specific validation errors
+  const [fieldErrors, setFieldErrors] = useState({});
+
   // New state variables for redesign
   const [isLogin, setIsLogin] = useState(true);
   const [fullName, setFullName] = useState("");
@@ -202,77 +205,132 @@ function App() {
   }
 
   // ----- HELPERS -----
-  // Translate a Firebase error code into a friendly message
-  function getFriendlyError(code) {
+  // Validate email format
+  function isValidEmail(val) {
+    if (!val) return false;
+    return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(val.trim());
+  }
+
+  // Validate phone format (optional field, but if provided must be realistic)
+  function isValidPhone(val) {
+    if (!val || !val.trim()) return true;
+    const cleaned = val.replace(/[\s+()-]/g, '');
+    return /^\d{7,15}$/.test(cleaned);
+  }
+
+  // Translate a Firebase error code into a user-friendly, non-leaking message
+  function getFriendlyError(code, mode = 'login') {
     switch (code) {
+      case "auth/invalid-credential":
+      case "auth/wrong-password":
+      case "auth/user-not-found":
+        return mode === 'login'
+          ? "Invalid email or password. Please check your credentials and try again."
+          : "Unable to complete registration with these credentials.";
+      case "auth/invalid-email":
+        return "Please enter a valid email address.";
+      case "auth/missing-password":
+        return "Please enter your password.";
       case "auth/weak-password":
         return "Password is too weak. Please use at least 6 characters.";
-      case "auth/invalid-email":
-        return "That email address doesn't look valid. Please double-check it.";
-      case "auth/user-not-found":
-        return "No account found with that email. Try signing up instead.";
-      case "auth/wrong-password":
-      case "auth/invalid-credential":
-        return "Incorrect password. Please try again.";
       case "auth/email-already-in-use":
-        return "That email is already registered. Try logging in.";
-      case "auth/missing-password":
-        return "Please enter a password.";
+        return "An account with this email address already exists. Please sign in instead.";
       case "auth/too-many-requests":
-        return "Too many attempts. Please wait a moment and try again.";
+        return "Too many failed attempts. Access has been temporarily restricted. Please try again later.";
+      case "auth/network-request-failed":
+        return "Network connection error. Please check your internet connection and try again.";
+      case "auth/user-disabled":
+        return "This account has been disabled. Please contact an administrator.";
       default:
-        return "Something went wrong. Please try again.";
+        return mode === 'login'
+          ? "Unable to sign in. Please verify your details and try again."
+          : "Unable to create account. Please verify your details and try again.";
     }
   }
 
   // ----- HANDLERS -----
   // Create a new account with email + password
   async function handleSignup(e) {
-    e.preventDefault(); // stop the form from reloading the page
+    if (e) e.preventDefault();
+    if (loading) return; // Prevent duplicate submissions
+
     setError("");
     setSuccessMessage("");
-    
-    // Check password match
-    if (password !== confirmPassword) {
-      setError("Passwords do not match. Please verify and try again.");
+
+    const errors = {};
+    const trimmedName = fullName.trim();
+    const trimmedEmail = email.trim();
+    const trimmedPhone = phone.trim();
+
+    if (!trimmedName) {
+      errors.fullName = "Please enter your full name.";
+    } else if (trimmedName.length < 2) {
+      errors.fullName = "Full name must be at least 2 characters.";
+    }
+
+    if (!trimmedEmail) {
+      errors.email = "Please enter your email address.";
+    } else if (!isValidEmail(trimmedEmail)) {
+      errors.email = "Please enter a valid email address.";
+    }
+
+    if (trimmedPhone && !isValidPhone(trimmedPhone)) {
+      errors.phone = "Please enter a valid phone number (e.g. +27 12 345 6789).";
+    }
+
+    if (!password) {
+      errors.password = "Please enter a password.";
+    } else if (password.length < 6) {
+      errors.password = "Password must be at least 6 characters long.";
+    }
+
+    if (!confirmPassword) {
+      errors.confirmPassword = "Please confirm your password.";
+    } else if (password !== confirmPassword) {
+      errors.confirmPassword = "Passwords do not match. Please verify and try again.";
+    }
+
+    if (Object.keys(errors).length > 0) {
+      setFieldErrors(errors);
+      setError("");
       return;
     }
-    
+
+    setFieldErrors({});
     setIsSigningUp(true);
     setLoading(true);
 
     try {
       // Firebase creates the user and signs them in automatically
-      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-      const user = userCredential.user;
+      const userCredential = await createUserWithEmailAndPassword(auth, trimmedEmail, password);
+      const newUser = userCredential.user;
 
       // Create user document in Firestore
-      await setDoc(doc(db, "users", user.uid), {
-        uid: user.uid,
-        name: fullName,
-        email: email,
-        phone: phone,
+      await setDoc(doc(db, "users", newUser.uid), {
+        uid: newUser.uid,
+        name: trimmedName,
+        email: trimmedEmail,
+        phone: trimmedPhone,
         role: "reporter",
         createdAt: serverTimestamp()
       });
 
-      // Sign the user out immediately
+      // Sign the user out immediately so they can log in cleanly
       await signOut(auth);
 
-      // Show success message
+      // Show success message and transition to login
       setSuccessMessage("Account created successfully. Please log in.");
-
-      // Switch to login form
       setIsLogin(true);
 
-      // Clear the form on success
+      // Clear form on success
       setEmail("");
       setPassword("");
       setFullName("");
       setPhone("");
       setConfirmPassword("");
+      setFieldErrors({});
     } catch (err) {
-      setError(getFriendlyError(err.code));
+      setError(getFriendlyError(err.code, 'signup'));
     } finally {
       setLoading(false);
       setIsSigningUp(false);
@@ -281,16 +339,49 @@ function App() {
 
   // Sign in an existing user
   async function handleLogin(e) {
-    e.preventDefault();
+    if (e) e.preventDefault();
+    if (loading) return; // Prevent duplicate submissions
+
     setError("");
+    setSuccessMessage("");
+
+    const errors = {};
+    const trimmedEmail = email.trim();
+
+    if (!trimmedEmail && !password) {
+      errors.email = "Please enter your email address.";
+      errors.password = "Please enter your password.";
+      setFieldErrors(errors);
+      setError("Please enter your email address and password.");
+      return;
+    }
+
+    if (!trimmedEmail) {
+      errors.email = "Please enter your email address.";
+    } else if (!isValidEmail(trimmedEmail)) {
+      errors.email = "Please enter a valid email address.";
+    }
+
+    if (!password) {
+      errors.password = "Please enter your password.";
+    }
+
+    if (Object.keys(errors).length > 0) {
+      setFieldErrors(errors);
+      setError("");
+      return;
+    }
+
+    setFieldErrors({});
     setLoading(true);
 
     try {
-      await signInWithEmailAndPassword(auth, email, password);
+      await signInWithEmailAndPassword(auth, trimmedEmail, password);
       setEmail("");
       setPassword("");
+      setFieldErrors({});
     } catch (err) {
-      setError(getFriendlyError(err.code));
+      setError(getFriendlyError(err.code, 'login'));
     } finally {
       setLoading(false);
     }
@@ -489,14 +580,25 @@ function App() {
                   <input
                     id="login-email"
                     type="email"
-                    className="field-input"
+                    className={`field-input ${fieldErrors.email ? "input-has-error" : ""}`}
                     placeholder="you@organisation.com"
                     value={email}
-                    onChange={(e) => setEmail(e.target.value)}
+                    onChange={(e) => {
+                      setEmail(e.target.value);
+                      if (fieldErrors.email) setFieldErrors((prev) => ({ ...prev, email: undefined }));
+                      if (error) setError("");
+                    }}
                     autoComplete="email"
+                    aria-invalid={!!fieldErrors.email}
+                    aria-describedby={fieldErrors.email ? "login-email-error" : undefined}
                     required
                   />
                 </div>
+                {fieldErrors.email && (
+                  <span id="login-email-error" className="field-error-msg" role="alert">
+                    {fieldErrors.email}
+                  </span>
+                )}
               </div>
 
               <div className="field-group">
@@ -506,11 +608,17 @@ function App() {
                   <input
                     id="login-password"
                     type={showPassword ? "text" : "password"}
-                    className="field-input"
+                    className={`field-input ${fieldErrors.password ? "input-has-error" : ""}`}
                     placeholder="Enter your password"
                     value={password}
-                    onChange={(e) => setPassword(e.target.value)}
+                    onChange={(e) => {
+                      setPassword(e.target.value);
+                      if (fieldErrors.password) setFieldErrors((prev) => ({ ...prev, password: undefined }));
+                      if (error) setError("");
+                    }}
                     autoComplete="current-password"
+                    aria-invalid={!!fieldErrors.password}
+                    aria-describedby={fieldErrors.password ? "login-password-error" : undefined}
                     required
                   />
                   <button
@@ -522,6 +630,11 @@ function App() {
                     {showPassword ? <EyeOffIcon /> : <EyeIcon />}
                   </button>
                 </div>
+                {fieldErrors.password && (
+                  <span id="login-password-error" className="field-error-msg" role="alert">
+                    {fieldErrors.password}
+                  </span>
+                )}
               </div>
             </>
           ) : (
@@ -534,14 +647,25 @@ function App() {
                   <input
                     id="signup-name"
                     type="text"
-                    className="field-input"
+                    className={`field-input ${fieldErrors.fullName ? "input-has-error" : ""}`}
                     placeholder="Your full name"
                     value={fullName}
-                    onChange={(e) => setFullName(e.target.value)}
+                    onChange={(e) => {
+                      setFullName(e.target.value);
+                      if (fieldErrors.fullName) setFieldErrors((prev) => ({ ...prev, fullName: undefined }));
+                      if (error) setError("");
+                    }}
                     autoComplete="name"
+                    aria-invalid={!!fieldErrors.fullName}
+                    aria-describedby={fieldErrors.fullName ? "signup-name-error" : undefined}
                     required
                   />
                 </div>
+                {fieldErrors.fullName && (
+                  <span id="signup-name-error" className="field-error-msg" role="alert">
+                    {fieldErrors.fullName}
+                  </span>
+                )}
               </div>
 
               <div className="field-group">
@@ -551,14 +675,25 @@ function App() {
                   <input
                     id="signup-email"
                     type="email"
-                    className="field-input"
+                    className={`field-input ${fieldErrors.email ? "input-has-error" : ""}`}
                     placeholder="you@organisation.com"
                     value={email}
-                    onChange={(e) => setEmail(e.target.value)}
+                    onChange={(e) => {
+                      setEmail(e.target.value);
+                      if (fieldErrors.email) setFieldErrors((prev) => ({ ...prev, email: undefined }));
+                      if (error) setError("");
+                    }}
                     autoComplete="email"
+                    aria-invalid={!!fieldErrors.email}
+                    aria-describedby={fieldErrors.email ? "signup-email-error" : undefined}
                     required
                   />
                 </div>
+                {fieldErrors.email && (
+                  <span id="signup-email-error" className="field-error-msg" role="alert">
+                    {fieldErrors.email}
+                  </span>
+                )}
               </div>
 
               <div className="field-group">
@@ -568,13 +703,24 @@ function App() {
                   <input
                     id="signup-phone"
                     type="tel"
-                    className="field-input"
+                    className={`field-input ${fieldErrors.phone ? "input-has-error" : ""}`}
                     placeholder="+27 00 000 0000"
                     value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
+                    onChange={(e) => {
+                      setPhone(e.target.value);
+                      if (fieldErrors.phone) setFieldErrors((prev) => ({ ...prev, phone: undefined }));
+                      if (error) setError("");
+                    }}
                     autoComplete="tel"
+                    aria-invalid={!!fieldErrors.phone}
+                    aria-describedby={fieldErrors.phone ? "signup-phone-error" : undefined}
                   />
                 </div>
+                {fieldErrors.phone && (
+                  <span id="signup-phone-error" className="field-error-msg" role="alert">
+                    {fieldErrors.phone}
+                  </span>
+                )}
               </div>
 
               <div className="form-section-label">Security</div>
@@ -586,11 +732,17 @@ function App() {
                   <input
                     id="signup-password"
                     type={showPassword ? "text" : "password"}
-                    className="field-input"
+                    className={`field-input ${fieldErrors.password ? "input-has-error" : ""}`}
                     placeholder="At least 6 characters"
                     value={password}
-                    onChange={(e) => setPassword(e.target.value)}
+                    onChange={(e) => {
+                      setPassword(e.target.value);
+                      if (fieldErrors.password) setFieldErrors((prev) => ({ ...prev, password: undefined }));
+                      if (error) setError("");
+                    }}
                     autoComplete="new-password"
+                    aria-invalid={!!fieldErrors.password}
+                    aria-describedby={fieldErrors.password ? "signup-password-error" : undefined}
                     required
                   />
                   <button
@@ -602,6 +754,11 @@ function App() {
                     {showPassword ? <EyeOffIcon /> : <EyeIcon />}
                   </button>
                 </div>
+                {fieldErrors.password && (
+                  <span id="signup-password-error" className="field-error-msg" role="alert">
+                    {fieldErrors.password}
+                  </span>
+                )}
               </div>
 
               <div className="field-group">
@@ -611,11 +768,17 @@ function App() {
                   <input
                     id="signup-confirm"
                     type={showConfirmPassword ? "text" : "password"}
-                    className="field-input"
+                    className={`field-input ${fieldErrors.confirmPassword ? "input-has-error" : ""}`}
                     placeholder="Repeat your password"
                     value={confirmPassword}
-                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    onChange={(e) => {
+                      setConfirmPassword(e.target.value);
+                      if (fieldErrors.confirmPassword) setFieldErrors((prev) => ({ ...prev, confirmPassword: undefined }));
+                      if (error) setError("");
+                    }}
                     autoComplete="new-password"
+                    aria-invalid={!!fieldErrors.confirmPassword}
+                    aria-describedby={fieldErrors.confirmPassword ? "signup-confirm-error" : undefined}
                     required
                   />
                   <button
@@ -627,11 +790,12 @@ function App() {
                     {showConfirmPassword ? <EyeOffIcon /> : <EyeIcon />}
                   </button>
                 </div>
+                {fieldErrors.confirmPassword && (
+                  <span id="signup-confirm-error" className="field-error-msg" role="alert">
+                    {fieldErrors.confirmPassword}
+                  </span>
+                )}
               </div>
-
-              {confirmPassword && password !== confirmPassword && (
-                <p className="password-error" role="alert">Passwords do not match</p>
-              )}
             </>
           )}
 
@@ -669,6 +833,8 @@ function App() {
                   onClick={() => {
                     setIsLogin(false);
                     setError("");
+                    setFieldErrors({});
+                    setSuccessMessage("");
                   }}
                 >
                   Register
@@ -683,6 +849,8 @@ function App() {
                   onClick={() => {
                     setIsLogin(true);
                     setError("");
+                    setFieldErrors({});
+                    setSuccessMessage("");
                   }}
                 >
                   Sign in
@@ -691,10 +859,6 @@ function App() {
             )}
           </div>
         </form>
-
-        <p className="form-footer-note">
-          Alert24 Emergency Management &amp; Response System
-        </p>
       </div>
     </div>
   );

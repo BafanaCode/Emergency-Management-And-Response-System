@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useState } from 'react';
 import IncidentImage from '../IncidentImage';
 import { getIncidentImageUrl } from '../../utils/imageUtils';
+import { generateIncidentReportPDF } from '../../utils/pdfExport';
 
 export const ViewIncidentModal = ({
   viewIncident,
@@ -10,13 +11,54 @@ export const ViewIncidentModal = ({
   SeverityBadge,
   StatusBadge,
 }) => {
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportError, setExportError] = useState('');
+
   if (!viewIncident) return null;
+
+  const handleExportPDF = async () => {
+    if (isExporting) return;
+    setIsExporting(true);
+    setExportError('');
+    try {
+      generateIncidentReportPDF({
+        incident: viewIncident,
+        statusLogs,
+        userRole: 'dispatcher',
+        download: true,
+      });
+    } catch (err) {
+      console.error('Failed to export incident PDF:', err);
+      setExportError('Failed to generate PDF report. Please try again.');
+    } finally {
+      setIsExporting(false);
+    }
+  };
 
   return (
     <div className="dd-overlay" onClick={onClose}>
       <div className="dd-modal" onClick={(e) => e.stopPropagation()}>
         <button className="dd-modal-close" onClick={onClose}>×</button>
-        <h2 className="dd-modal-title">Incident Details</h2>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingRight: 32, marginBottom: 12 }}>
+          <h2 className="dd-modal-title" style={{ margin: 0 }}>Incident Details</h2>
+          <button
+            type="button"
+            className="dd-btn dd-btn-outline dd-btn-sm"
+            onClick={handleExportPDF}
+            disabled={isExporting}
+            aria-busy={isExporting}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+            title="Download complete official PDF report"
+          >
+            {isExporting ? 'Generating PDF…' : '📄 Export PDF Report'}
+          </button>
+        </div>
+
+        {exportError && (
+          <div className="dd-alert dd-alert-error" style={{ marginBottom: 14 }}>
+            {exportError}
+          </div>
+        )}
 
         <div className="dd-detail-grid">
           <div className="dd-detail-item">

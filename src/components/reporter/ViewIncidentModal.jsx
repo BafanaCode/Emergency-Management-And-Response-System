@@ -1,9 +1,32 @@
-import React from "react";
+import React, { useState } from "react";
 import IncidentImage from "../IncidentImage";
 import { getIncidentImageUrl } from "../../utils/imageUtils";
+import { generateIncidentReportPDF } from "../../utils/pdfExport";
 
 const ViewIncidentModal = ({ incident, statusLogs = [], formatDate, onClose }) => {
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportError, setExportError] = useState("");
+
   if (!incident) return null;
+
+  const handleExportPDF = async () => {
+    if (isExporting) return;
+    setIsExporting(true);
+    setExportError("");
+    try {
+      generateIncidentReportPDF({
+        incident,
+        statusLogs,
+        userRole: "reporter",
+        download: true,
+      });
+    } catch (err) {
+      console.error("Failed to export incident PDF:", err);
+      setExportError("Failed to generate PDF report. Please try again.");
+    } finally {
+      setIsExporting(false);
+    }
+  };
 
   return (
     <div
@@ -15,16 +38,35 @@ const ViewIncidentModal = ({ incident, statusLogs = [], formatDate, onClose }) =
     >
       <div className="modal-content" onClick={(e) => e.stopPropagation()}>
         {/* Modal header — matches dd-modal structure */}
-        <div className="modal-header">
-          <h2 className="modal-title">Incident Details</h2>
-          <button
-            className="modal-close"
-            onClick={onClose}
-            aria-label="Close incident details"
-          >
-            &times;
-          </button>
+        <div className="modal-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+          <h2 className="modal-title" style={{ margin: 0 }}>Incident Details</h2>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={handleExportPDF}
+              disabled={isExporting}
+              aria-busy={isExporting}
+              style={{ fontSize: '13px', padding: '6px 12px' }}
+              title="Download official PDF report for this incident"
+            >
+              {isExporting ? 'Generating PDF…' : '📄 Export PDF Report'}
+            </button>
+            <button
+              className="modal-close"
+              onClick={onClose}
+              aria-label="Close incident details"
+            >
+              &times;
+            </button>
+          </div>
         </div>
+
+        {exportError && (
+          <div className="alert alert-error" style={{ margin: '12px 16px 0 16px' }}>
+            {exportError}
+          </div>
+        )}
 
         {/* Modal body */}
         <div className="modal-body">

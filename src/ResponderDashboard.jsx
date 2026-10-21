@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense, lazy } from 'react';
 import { db } from './firebase';
 import {
   collection,
@@ -20,6 +20,10 @@ import { canTransition, friendlyFirestoreError } from './utils/incidentLifecycle
 import NotificationCenter from './components/notifications/NotificationCenter';
 import useNotifications from './hooks/useNotifications';
 import { queueProgressNotifications } from './utils/notifications';
+import { generateIncidentReportPDF } from './utils/pdfExport';
+
+// Leaflet map is lazy-loaded: only downloaded when the map tab is opened
+const IncidentMap = lazy(() => import('./components/map/IncidentMap'));
 
 /* ── Helpers ── */
 const formatDate = (timestamp) => {
@@ -52,6 +56,13 @@ const IconHome = () => (
 const IconFlame = () => (
   <svg className="rd-sidebar-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M8.5 14.5A2.5 2.5 0 0011 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 11-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 002.5 2.5z"/>
+  </svg>
+);
+
+const IconMap = () => (
+  <svg className="rd-sidebar-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z" />
+    <circle cx="12" cy="10" r="3" />
   </svg>
 );
 
@@ -164,6 +175,8 @@ const ResponderDashboard = ({ onLogout, user, userData, theme, onThemeChange }) 
   const [fieldNotes, setFieldNotes] = useState('');
   const [savingNotes, setSavingNotes] = useState(false);
   const [updatingStatus, setUpdatingStatus] = useState(false);
+  const [isExportingPDF, setIsExportingPDF] = useState(false);
+  const [exportPDFError, setExportPDFError] = useState('');
 
   // Notifications (shared real-time hook)
   const {
@@ -220,7 +233,9 @@ const ResponderDashboard = ({ onLogout, user, userData, theme, onThemeChange }) 
         setErrorBanner('Error loading incidents');
       }
     );
-    return () => unsubscribe();
+    return () => {
+      if (typeof unsubscribe === 'function') unsubscribe();
+    };
   }, [user]);
 
   /* ── Fetch status logs for active incident ── */
@@ -241,7 +256,9 @@ const ResponderDashboard = ({ onLogout, user, userData, theme, onThemeChange }) 
       },
       (err) => { console.error('Error fetching status logs:', err); }
     );
-    return () => unsubscribe();
+    return () => {
+      if (typeof unsubscribe === 'function') unsubscribe();
+    };
   }, [activeIncident]);
 
   /* ── Handlers ── */
@@ -333,6 +350,25 @@ const ResponderDashboard = ({ onLogout, user, userData, theme, onThemeChange }) 
     }
   };
 
+  const handleExportIncidentPDF = async (inc = activeIncident, logs = statusLogs) => {
+    if (!inc || isExportingPDF) return;
+    setIsExportingPDF(true);
+    setExportPDFError('');
+    try {
+      generateIncidentReportPDF({
+        incident: inc,
+        statusLogs: logs,
+        userRole: 'responder',
+        download: true,
+      });
+    } catch (err) {
+      console.error('Failed to export incident PDF report:', err);
+      setExportPDFError('Failed to generate PDF report. Please try again.');
+    } finally {
+      setIsExportingPDF(false);
+    }
+  };
+
   const handleToggleAvailability = async () => {
     if (!userData) return;
     // A responder with an active assignment cannot mark themselves available
@@ -394,6 +430,7 @@ const ResponderDashboard = ({ onLogout, user, userData, theme, onThemeChange }) 
   const navItems = [
     { id: 'dashboard',     label: 'My Dashboard',   shortLabel: 'Home',     Icon: IconHome },
     { id: 'assigned-job',  label: 'Active Job',      shortLabel: 'Job',      Icon: IconFlame },
+    { id: 'incident-map',  label: 'Incident Map',    shortLabel: 'Map',      Icon: IconMap },
     { id: 'job-history',   label: 'Job History',     shortLabel: 'History',  Icon: IconClock },
     { id: 'profile',       label: 'My Profile',      shortLabel: 'Profile',  Icon: IconUser },
     { id: 'notifications', label: 'Notifications',   shortLabel: 'Alerts',   Icon: IconBell },
@@ -649,11 +686,28 @@ const ResponderDashboard = ({ onLogout, user, userData, theme, onThemeChange }) 
                         <IconMapPin /> {activeIncident.address}
                       </div>
                     </div>
-                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
                       <SeverityBadge severity={activeIncident.severity} />
                       <StatusBadge status={activeIncident.status} />
+                      <button
+                        type="button"
+                        className="rd-btn rd-btn-ghost rd-btn-sm"
+                        onClick={() => handleExportIncidentPDF(activeIncident, statusLogs)}
+                        disabled={isExportingPDF}
+                        aria-busy={isExportingPDF}
+                        style={{ fontSize: 12, padding: '4px 10px' }}
+                        title="Download official PDF report for this incident"
+                      >
+                        {isExportingPDF ? 'Generating…' : '📄 PDF Report'}
+                      </button>
                     </div>
                   </div>
+
+                  {exportPDFError && (
+                    <div className="rd-alert rd-alert-error" style={{ margin: '10px 0' }}>
+                      {exportPDFError}
+                    </div>
+                  )}
 
                   {/* Status progression */}
                   <StatusProgression currentStatus={activeIncident.status} />
@@ -799,6 +853,34 @@ const ResponderDashboard = ({ onLogout, user, userData, theme, onThemeChange }) 
                   </div>
                 </div>
               )}
+            </>
+          )}
+
+          {/* ══════════════════════════════
+              INCIDENT MAP TAB
+              ══════════════════════════════ */}
+          {activeTab === 'incident-map' && (
+            <>
+              <div className="rd-page-header">
+                <h1 className="rd-page-title">Incident Map</h1>
+                <p className="rd-page-subtitle">
+                  Locations of your assigned emergency incidents. Select a marker to inspect details or navigate to your job.
+                </p>
+              </div>
+              <Suspense fallback={<div className="rd-card" role="status" style={{ padding: 24 }}>Loading map…</div>}>
+                <IncidentMap
+                  incidents={incidents}
+                  formatDate={formatDate}
+                  onViewIncident={(incident) => {
+                    if (activeIncident && incident.incidentId === activeIncident.incidentId) {
+                      setActiveTab('assigned-job');
+                    } else {
+                      setHistorySearch(incident.type || incident.address || '');
+                      setActiveTab('job-history');
+                    }
+                  }}
+                />
+              </Suspense>
             </>
           )}
 
