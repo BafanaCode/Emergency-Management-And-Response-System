@@ -830,3 +830,56 @@ body {
   }
 }
 
+/* ── Stat Card Loading Skeleton (Anti-layout shift) ── */
+.stat-skeleton,
+.dd-stat-skeleton,
+.rd-stat-skeleton {
+  display: inline-block;
+  width: 44px;
+  height: 30px;
+  border-radius: 6px;
+  background: var(--bg-surface-2, rgba(255, 255, 255, 0.08));
+  position: relative;
+  overflow: hidden;
+  vertical-align: middle;
+}
+
+[data-theme="light"] .stat-skeleton,
+[data-theme="light"] .dd-stat-skeleton,
+[data-theme="light"] .rd-stat-skeleton {
+  background: rgba(0, 0, 0, 0.08);
+}
+
+.stat-skeleton::after,
+.dd-stat-skeleton::after,
+.rd-stat-skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.12) 50%,
+    transparent 100%
+  );
+  animation: stat-shimmer 1.4s infinite ease-in-out;
+}
+
+[data-theme="light"] .stat-skeleton::after,
+[data-theme="light"] .dd-stat-skeleton::after,
+[data-theme="light"] .rd-stat-skeleton::after {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.45) 50%,
+    transparent 100%
+  );
+}
+
+@keyframes stat-shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+

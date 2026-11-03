@@ -237,4 +237,48 @@ describe('DispatcherDashboard - Response Time Trend Integration', () => {
     // Incomplete measurement should not produce 0 mins; should remain empty state
     expect(screen.getByText('No response time data recorded yet')).toBeInTheDocument();
   });
+
+  it('renders skeleton placeholders while loading when no session cache exists', () => {
+    sessionStorage.clear();
+    const { container } = render(
+      <DispatcherDashboard
+        onLogout={jest.fn()}
+        user={mockUser}
+        userData={mockUserData}
+        theme="dark"
+        onThemeChange={jest.fn()}
+      />
+    );
+
+    const skeletons = container.querySelectorAll('.dd-stat-skeleton');
+    expect(skeletons.length).toBe(5);
+  });
+
+  it('renders cached statistics immediately from sessionStorage without delay', () => {
+    sessionStorage.setItem(`alert24_stats_dispatcher_${mockUser.uid}`, JSON.stringify({
+      total: 12,
+      unassigned: 3,
+      active: 4,
+      resolvedToday: 5,
+      totalResponders: 8
+    }));
+
+    render(
+      <DispatcherDashboard
+        onLogout={jest.fn()}
+        user={mockUser}
+        userData={mockUserData}
+        theme="dark"
+        onThemeChange={jest.fn()}
+      />
+    );
+
+    expect(screen.getByText('12')).toBeInTheDocument();
+    expect(screen.getByText('3')).toBeInTheDocument();
+    expect(screen.getByText('4')).toBeInTheDocument();
+    expect(screen.getByText('5')).toBeInTheDocument();
+    expect(screen.getByText('8')).toBeInTheDocument();
+
+    sessionStorage.clear();
+  });
 });

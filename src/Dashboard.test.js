@@ -174,4 +174,46 @@ describe('Reporter incident submission', () => {
     fireEvent.click(mapButton);
     expect(await screen.findByTestId('reporter-incident-map')).toBeInTheDocument();
   });
+
+  test('renders skeleton placeholders while statistics are loading without cache', () => {
+    sessionStorage.clear();
+    const { container } = render(
+      <Dashboard
+        onLogout={jest.fn()}
+        user={{ uid: 'rep1' }}
+        userData={{ name: 'Reporter One', role: 'reporter' }}
+        theme="dark"
+        onThemeChange={jest.fn()}
+      />
+    );
+
+    const skeletons = container.querySelectorAll('.stat-skeleton');
+    expect(skeletons.length).toBe(4);
+  });
+
+  test('renders cached stats immediately from sessionStorage without waiting for Firestore', () => {
+    sessionStorage.setItem('alert24_stats_reporter_rep1', JSON.stringify({
+      total: 14,
+      pending: 2,
+      inProgress: 3,
+      resolved: 9
+    }));
+
+    render(
+      <Dashboard
+        onLogout={jest.fn()}
+        user={{ uid: 'rep1' }}
+        userData={{ name: 'Reporter One', role: 'reporter' }}
+        theme="dark"
+        onThemeChange={jest.fn()}
+      />
+    );
+
+    expect(screen.getByText('14')).toBeInTheDocument();
+    expect(screen.getByText('2')).toBeInTheDocument();
+    expect(screen.getByText('3')).toBeInTheDocument();
+    expect(screen.getByText('9')).toBeInTheDocument();
+
+    sessionStorage.clear();
+  });
 });

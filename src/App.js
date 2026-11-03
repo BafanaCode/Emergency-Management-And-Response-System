@@ -1,5 +1,6 @@
 // Import React hooks we need for state and side effects
 import { useState, useEffect, useRef } from "react";
+import { flushSync } from "react-dom";
 
 // Import components
 import Dashboard from "./Dashboard";
@@ -84,10 +85,19 @@ function App() {
   const userDocUnsubRef = useRef(null);
   const isLoggingOutRef = useRef(false);
 
+  // Monotonic auth-session counter. Every auth state change (and every logout)
+  // starts a new session; callbacks captured by an older session compare their
+  // own id against this ref and drop out, so a stale listener can never update
+  // the state of a newer session.
+  const authSessionRef = useRef(0);
+
   // ----- SIDE EFFECT — auth + user data listener -----
   // onAuthStateChanged listens for login/logout changes and keeps our `user` state in sync.
   useEffect(() => {
     const unsubscribeAuth = onAuthStateChanged(auth, async (currentUser) => {
+      // Start a new auth session; anything captured by a previous session is now stale.
+      const sessionId = ++authSessionRef.current;
+
       // Always unsubscribe previous user doc listener before attaching a new one or handling logout
       if (userDocUnsubRef.current) {
         try {
@@ -115,17 +125,47 @@ function App() {
 
       const currentUid = currentUser.uid;
       setUser(currentUser);
-      setUserData(null);
       setError("");
+
+      // The role dashboard must NOT mount until the authenticated Firestore
+      // user-document listener has delivered its initial snapshot. Mounting early
+      // (e.g. from the sessionStorage profile cache) fires every dashboard
+      // onSnapshot listener while Firestore is still re-establishing its watch
+      // stream for the new credentials, which is the burst that precedes the
+      // Firestore `ca9` internal assertion. So: keep the loading gate closed and
+      // clear any previous profile until the snapshot arrives.
+      setUserData(null);
       setLoadingRole(true);
+
+      // The cached profile is used only as temporary, non-authoritative UI hint
+      // (theme) to avoid a light/dark flash while verifying. It is never treated
+      // as confirmation that the user document has loaded.
+      try {
+        const cachedRaw = sessionStorage.getItem(`alert24_user_${currentUid}`);
+        if (cachedRaw) {
+          const cached = JSON.parse(cachedRaw);
+          if (cached && (cached.themePreference === "light" || cached.themePreference === "dark")) {
+            setTheme(cached.themePreference);
+          }
+        }
+      } catch (err) {
+        // Ignore cache parse error
+      }
 
       // Fetch user document from Firestore to get role AND theme preference
       const userDocRef = doc(db, "users", currentUid);
-      userDocUnsubRef.current = onSnapshot(
+      const isStale = () =>
+        sessionId !== authSessionRef.current ||
+        isLoggingOutRef.current ||
+        !auth.currentUser ||
+        auth.currentUser.uid !== currentUid;
+
+      const unsubscribeUserDoc = onSnapshot(
         userDocRef,
         (docSnap) => {
-          // Guard: Ignore if user has logged out, is logging out, or auth user has changed
-          if (isLoggingOutRef.current || !auth.currentUser || auth.currentUser.uid !== currentUid) {
+          // Guard: Ignore if this session is stale, the user has logged out,
+          // is logging out, or the auth user has changed
+          if (isStale()) {
             return;
           }
 
@@ -133,6 +173,11 @@ function App() {
           if (docSnap.exists()) {
             const data = docSnap.data();
             setUserData(data);
+
+            // Update session cache for instantaneous subsequent mounts
+            try {
+              sessionStorage.setItem(`alert24_user_${currentUid}`, JSON.stringify(data));
+            } catch (e) {}
 
             // Load saved theme preference — default to "dark" if not set
             const savedTheme = data.themePreference;
@@ -145,6 +190,7 @@ function App() {
             // Check role validity
             if (!["reporter", "dispatcher", "responder"].includes(data.role)) {
               setError("Access denied. Unauthorised role.");
+              try { sessionStorage.removeItem(`alert24_user_${currentUid}`); } catch (e) {}
               if (userDocUnsubRef.current) {
                 try { userDocUnsubRef.current(); } catch (e) {}
                 userDocUnsubRef.current = null;
@@ -155,6 +201,7 @@ function App() {
             // User doc not found - for reporters, we created it on signup
             // For others, account should have been created with createStaffAccount.js
             setError("Access denied.");
+            try { sessionStorage.removeItem(`alert24_user_${currentUid}`); } catch (e) {}
             if (userDocUnsubRef.current) {
               try { userDocUnsubRef.current(); } catch (e) {}
               userDocUnsubRef.current = null;
@@ -163,10 +210,10 @@ function App() {
           }
         },
         (err) => {
-          // Guard: If user is logged out, logging out, or auth changed,
-          // permission-denied errors on defunct listeners during sign-out are expected.
-          // They must NOT be treated as application errors.
-          if (isLoggingOutRef.current || !auth.currentUser || auth.currentUser.uid !== currentUid) {
+          // Guard: If this session is stale, the user is logged out, logging out,
+          // or auth changed, permission-denied errors on defunct listeners during
+          // sign-out are expected. They must NOT be treated as application errors.
+          if (isStale()) {
             return;
           }
           console.error("Error fetching user data:", err);
@@ -174,10 +221,20 @@ function App() {
           setError("Error loading user data.");
         }
       );
+
+      // Store the unsubscribe only if this session is still current. If a newer
+      // auth event or a logout happened while we were attaching, release it now.
+      if (sessionId === authSessionRef.current && !isLoggingOutRef.current) {
+        userDocUnsubRef.current = unsubscribeUserDoc;
+      } else {
+        try { unsubscribeUserDoc(); } catch (e) {}
+      }
     });
 
     // Clean up listeners on unmount
     return () => {
+      // Invalidate any in-flight session so late callbacks become no-ops
+      authSessionRef.current += 1;
       unsubscribeAuth();
       if (userDocUnsubRef.current) {
         try { userDocUnsubRef.current(); } catch (e) {}
@@ -390,7 +447,20 @@ function App() {
   // Sign the current user out
   async function handleLogout() {
     isLoggingOutRef.current = true;
+    // Invalidate the current auth session so any late user-doc callbacks are ignored
+    authSessionRef.current += 1;
     setError("");
+
+    // Purge cached profile & dashboard stats for the active user from sessionStorage
+    // to strictly guarantee cross-user isolation upon logout
+    try {
+      if (user?.uid) {
+        sessionStorage.removeItem(`alert24_user_${user.uid}`);
+        sessionStorage.removeItem(`alert24_stats_dispatcher_${user.uid}`);
+        sessionStorage.removeItem(`alert24_stats_reporter_${user.uid}`);
+        sessionStorage.removeItem(`alert24_stats_responder_${user.uid}`);
+      }
+    } catch (e) {}
 
     // 1. Immediately unsubscribe the Firestore user document listener
     if (userDocUnsubRef.current) {
@@ -402,10 +472,18 @@ function App() {
       userDocUnsubRef.current = null;
     }
 
-    // 2. Clear user and session state synchronously
-    setUser(null);
-    setUserData(null);
-    setLoadingRole(false);
+    // 2. Clear user and session state and commit it synchronously.
+    // flushSync makes React unmount the role dashboard *now* and run its effect
+    // cleanups, so every dashboard/notification onSnapshot listener belonging to
+    // this user is unsubscribed BEFORE signOut() changes Firestore's credentials.
+    // Firestore processes unlisten requests and the auth-token change on the same
+    // FIFO async queue, so this ordering guarantees no listener of the previous
+    // user is still registered while the watch stream is torn down and rebuilt.
+    flushSync(() => {
+      setUser(null);
+      setUserData(null);
+      setLoadingRole(false);
+    });
 
     // 3. Complete Firebase sign out
     try {

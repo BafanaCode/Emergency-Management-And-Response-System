@@ -42,8 +42,20 @@ const Dashboard = ({ onLogout, user, userData, theme, onThemeChange }) => {
     markRead,
     markAllRead,
   } = useNotifications(user, 'reporter');
+  const [cachedStats] = useState(() => {
+    try {
+      if (!user?.uid) return null;
+      const raw = sessionStorage.getItem(`alert24_stats_reporter_${user.uid}`);
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  });
+  const [statsLoading, setStatsLoading] = useState(true);
   const [stats, setStats] = useState({ total: 0, pending: 0, inProgress: 0, resolved: 0 });
   const [activeIncident, setActiveIncident] = useState(null);
+
+  const effectiveStats = statsLoading && cachedStats ? cachedStats : stats;
 
   // Report form state
   const [reportType, setReportType] = useState('');
@@ -125,7 +137,14 @@ const Dashboard = ({ onLogout, user, userData, theme, onThemeChange }) => {
         else if (incident.status === 'En Route' || incident.status === 'On Scene') inProgress++;
         else if (incident.status === 'Resolved') resolved++;
       });
-      setStats({ total, pending, inProgress, resolved });
+      const newStats = { total, pending, inProgress, resolved };
+      setStats(newStats);
+      setStatsLoading(false);
+      try {
+        if (user?.uid) {
+          sessionStorage.setItem(`alert24_stats_reporter_${user.uid}`, JSON.stringify(newStats));
+        }
+      } catch {}
 
       // Derive active incident (first non-resolved, already sorted newest-first)
       const active = data.find(i => i.status !== 'Resolved') || null;
@@ -133,6 +152,7 @@ const Dashboard = ({ onLogout, user, userData, theme, onThemeChange }) => {
     }, (err) => {
       if (!user) return;
       console.error('Error fetching incidents:', err);
+      setStatsLoading(false);
     });
 
     return () => unsubscribe();
@@ -591,7 +611,13 @@ const Dashboard = ({ onLogout, user, userData, theme, onThemeChange }) => {
                       <path d="M14 2H6C5.46957 2 4.96086 2.21071 4.58579 2.58579C4.21071 2.96086 4 3.46957 4 4V20C4 20.5304 4.21071 21.0391 4.58579 21.4142C4.96086 21.7893 5.46957 22 6 22H18C18.5304 22 19.0391 21.7893 19.4142 21.4142C19.7893 21.0391 20 20.5304 20 20V8L14 2Z" stroke="#3b82f6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                     </svg>
                   </div>
-                  <div className="stat-number">{stats.total}</div>
+                  <div className="stat-number">
+                    {statsLoading && !cachedStats ? (
+                      <span className="stat-skeleton" aria-label="Loading statistic" />
+                    ) : (
+                      effectiveStats.total
+                    )}
+                  </div>
                   <div className="stat-label">Total Reports</div>
                   <div className="stat-accent blue"></div>
                 </div>
@@ -603,7 +629,13 @@ const Dashboard = ({ onLogout, user, userData, theme, onThemeChange }) => {
                       <path d="M12 16H12.01" stroke="#f59e0b" strokeWidth="2" strokeLinecap="round" />
                     </svg>
                   </div>
-                  <div className="stat-number">{stats.pending}</div>
+                  <div className="stat-number">
+                    {statsLoading && !cachedStats ? (
+                      <span className="stat-skeleton" aria-label="Loading statistic" />
+                    ) : (
+                      effectiveStats.pending
+                    )}
+                  </div>
                   <div className="stat-label">Pending</div>
                   <div className="stat-accent yellow"></div>
                 </div>
@@ -613,7 +645,13 @@ const Dashboard = ({ onLogout, user, userData, theme, onThemeChange }) => {
                       <path d="M13 2L3 14H12L11 22L21 10H12L13 2Z" stroke="#ea580c" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                     </svg>
                   </div>
-                  <div className="stat-number">{stats.inProgress}</div>
+                  <div className="stat-number">
+                    {statsLoading && !cachedStats ? (
+                      <span className="stat-skeleton" aria-label="Loading statistic" />
+                    ) : (
+                      effectiveStats.inProgress
+                    )}
+                  </div>
                   <div className="stat-label">In Progress</div>
                   <div className="stat-accent orange"></div>
                 </div>
@@ -624,7 +662,13 @@ const Dashboard = ({ onLogout, user, userData, theme, onThemeChange }) => {
                       <path d="M22 4L12 14.01L9 11.01" stroke="#22c55e" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                     </svg>
                   </div>
-                  <div className="stat-number">{stats.resolved}</div>
+                  <div className="stat-number">
+                    {statsLoading && !cachedStats ? (
+                      <span className="stat-skeleton" aria-label="Loading statistic" />
+                    ) : (
+                      effectiveStats.resolved
+                    )}
+                  </div>
                   <div className="stat-label">Resolved</div>
                   <div className="stat-accent green"></div>
                 </div>

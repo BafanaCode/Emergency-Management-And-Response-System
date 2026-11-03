@@ -1,7 +1,12 @@
 // Import the Firebase functions we need (modular v9+ syntax)
 import { initializeApp } from "firebase/app";
 import { getAuth, setPersistence, browserSessionPersistence } from "firebase/auth";
-import { getFirestore } from "firebase/firestore";
+import {
+  getFirestore,
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
+} from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 
 // Load configuration strictly from environment variables
@@ -44,8 +49,21 @@ setPersistence(auth, browserSessionPersistence).catch((error) => {
   console.error("Error setting persistence:", error);
 });
 
-// Initialize Cloud Firestore (kept from original) and get a reference to the DB
-const db = getFirestore(app);
+// Initialize Cloud Firestore with persistent local cache in browser environments
+let db;
+if (typeof window !== "undefined" && typeof window.indexedDB !== "undefined" && !isTestEnv) {
+  try {
+    db = initializeFirestore(app, {
+      localCache: persistentLocalCache({
+        tabManager: persistentMultipleTabManager(),
+      }),
+    });
+  } catch (err) {
+    db = getFirestore(app);
+  }
+} else {
+  db = getFirestore(app);
+}
 
 // Initialize Firebase Storage and get a reference to the service
 const storage = getStorage(app);

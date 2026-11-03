@@ -64,4 +64,28 @@ describe('ResponderDashboard', () => {
     expect(await screen.findByTestId('responder-incident-map')).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: /incident map/i })).toBeInTheDocument();
   });
+
+  test('renders skeleton placeholders while statistics are loading without cache', () => {
+    sessionStorage.clear();
+    const { container } = render(<ResponderDashboard {...defaultProps} />);
+
+    const skeletons = container.querySelectorAll('.rd-stat-skeleton');
+    expect(skeletons.length).toBe(3);
+  });
+
+  test('renders cached stats immediately from sessionStorage without waiting for Firestore', () => {
+    sessionStorage.setItem(`alert24_stats_responder_${defaultProps.user.uid}`, JSON.stringify({
+      total: 15,
+      completed: 14,
+      active: 1
+    }));
+
+    render(<ResponderDashboard {...defaultProps} />);
+
+    expect(screen.getByText('15')).toBeInTheDocument();
+    expect(screen.getByText('14')).toBeInTheDocument();
+    expect(screen.getByText('1')).toBeInTheDocument();
+
+    sessionStorage.clear();
+  });
 });

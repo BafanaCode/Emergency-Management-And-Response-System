@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, Suspense, lazy } from "react";
+import React, { useState, useEffect, useRef, useMemo, Suspense, lazy } from "react";
 import { db } from "./firebase";
 import {
   collection,
@@ -181,6 +181,15 @@ const DispatcherDashboard = ({ onLogout, user, userData, theme, onThemeChange })
   const [reportsSearchQuery, setReportsSearchQuery] = useState("");
 
   const [incidentsLoading, setIncidentsLoading] = useState(true);
+  const [cachedStats] = useState(() => {
+    try {
+      if (!user?.uid) return null;
+      const raw = sessionStorage.getItem(`alert24_stats_dispatcher_${user.uid}`);
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  });
   const [allStatusLogs, setAllStatusLogs] = useState([]);
   const [statusLogsLoading, setStatusLogsLoading] = useState(true);
 
@@ -400,7 +409,7 @@ const DispatcherDashboard = ({ onLogout, user, userData, theme, onThemeChange })
   };
 
   /* ── Stats ── */
-  const stats = {
+  const liveStats = useMemo(() => ({
     total: incidents.length,
     unassigned: incidents.filter((i) => i.status === "Reported").length,
     active: incidents.filter(
@@ -408,10 +417,20 @@ const DispatcherDashboard = ({ onLogout, user, userData, theme, onThemeChange })
     ).length,
     resolvedToday: incidents.filter((i) => isResolvedToday(i)).length,
     totalResponders: responders.length,
-  };
+  }), [incidents, responders]);
+
+  useEffect(() => {
+    if (!incidentsLoading && user?.uid) {
+      try {
+        sessionStorage.setItem(`alert24_stats_dispatcher_${user.uid}`, JSON.stringify(liveStats));
+      } catch {}
+    }
+  }, [liveStats, incidentsLoading, user]);
+
+  const stats = incidentsLoading && cachedStats ? cachedStats : liveStats;
 
   /* ── Analytics ── */
-  const prepareAnalyticsData = () => {
+  const analyticsData = useMemo(() => {
     const last7Days = [];
     const today = new Date();
     const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -465,9 +484,7 @@ const DispatcherDashboard = ({ onLogout, user, userData, theme, onThemeChange })
       totalResponseMeasurements: totalMeasurements,
       averageResponseTimeOverall: averageOverall,
     };
-  };
-
-  const analyticsData = prepareAnalyticsData();
+  }, [incidents, allStatusLogs]);
 
   const TYPE_COLORS = {
     "Road Accident": "#2563eb",
@@ -718,7 +735,13 @@ const DispatcherDashboard = ({ onLogout, user, userData, theme, onThemeChange })
                       <circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/>
                     </svg>
                   </div>
-                  <div className="dd-stat-num">{stats.total}</div>
+                  <div className="dd-stat-num">
+                    {incidentsLoading && !cachedStats ? (
+                      <span className="dd-stat-skeleton" aria-label="Loading statistic" />
+                    ) : (
+                      stats.total
+                    )}
+                  </div>
                   <div className="dd-stat-label">Total Incidents</div>
                 </div>
 
@@ -728,7 +751,13 @@ const DispatcherDashboard = ({ onLogout, user, userData, theme, onThemeChange })
                       <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
                     </svg>
                   </div>
-                  <div className="dd-stat-num">{stats.unassigned}</div>
+                  <div className="dd-stat-num">
+                    {incidentsLoading && !cachedStats ? (
+                      <span className="dd-stat-skeleton" aria-label="Loading statistic" />
+                    ) : (
+                      stats.unassigned
+                    )}
+                  </div>
                   <div className="dd-stat-label">Unassigned</div>
                 </div>
 
@@ -738,7 +767,13 @@ const DispatcherDashboard = ({ onLogout, user, userData, theme, onThemeChange })
                       <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
                     </svg>
                   </div>
-                  <div className="dd-stat-num">{stats.active}</div>
+                  <div className="dd-stat-num">
+                    {incidentsLoading && !cachedStats ? (
+                      <span className="dd-stat-skeleton" aria-label="Loading statistic" />
+                    ) : (
+                      stats.active
+                    )}
+                  </div>
                   <div className="dd-stat-label">Active</div>
                 </div>
 
@@ -748,7 +783,13 @@ const DispatcherDashboard = ({ onLogout, user, userData, theme, onThemeChange })
                       <path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>
                     </svg>
                   </div>
-                  <div className="dd-stat-num">{stats.resolvedToday}</div>
+                  <div className="dd-stat-num">
+                    {incidentsLoading && !cachedStats ? (
+                      <span className="dd-stat-skeleton" aria-label="Loading statistic" />
+                    ) : (
+                      stats.resolvedToday
+                    )}
+                  </div>
                   <div className="dd-stat-label">Resolved Today</div>
                 </div>
 
@@ -759,7 +800,13 @@ const DispatcherDashboard = ({ onLogout, user, userData, theme, onThemeChange })
                       <path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/>
                     </svg>
                   </div>
-                  <div className="dd-stat-num">{stats.totalResponders}</div>
+                  <div className="dd-stat-num">
+                    {incidentsLoading && !cachedStats ? (
+                      <span className="dd-stat-skeleton" aria-label="Loading statistic" />
+                    ) : (
+                      stats.totalResponders
+                    )}
+                  </div>
                   <div className="dd-stat-label">Total Responders</div>
                 </div>
               </div>

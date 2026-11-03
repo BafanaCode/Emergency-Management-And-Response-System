@@ -15,6 +15,10 @@
  *   node scripts/create-staff-account.js --role responder --speciality "Paramedic" ...
  */
 /* eslint-disable no-console */
+const { initializeApp, applicationDefault } = require('firebase-admin/app');
+const { getAuth } = require('firebase-admin/auth');
+const { getFirestore, FieldValue } = require('firebase-admin/firestore');
+
 const args = process.argv.slice(2);
 function arg(name, fallback = '') {
   const i = args.indexOf(`--${name}`);
@@ -43,9 +47,17 @@ if (!name || !email || !password || password.length < 6) {
 }
 
 (async () => {
-  const admin = require('firebase-admin');
-  admin.initializeApp(); // uses GOOGLE_APPLICATION_CREDENTIALS
-  const authUser = await admin.auth().createUser({ email, password, displayName: name });
+  const app = initializeApp({
+    credential: applicationDefault(),
+  });
+  const auth = getAuth(app);
+  const db = getFirestore(app);
+
+  const authUser = await auth.createUser({
+    email,
+    password,
+    displayName: name,
+  });
 
   const data = {
     uid: authUser.uid,
@@ -53,14 +65,14 @@ if (!name || !email || !password || password.length < 6) {
     email,
     phone,
     role,
-    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    createdAt: FieldValue.serverTimestamp(),
   };
   if (role === 'responder') {
     data.speciality = speciality;
     data.isAvailable = true;
     data.activeIncidentId = '';
   }
-  await admin.firestore().collection('users').doc(authUser.uid).set(data);
+  await db.collection('users').doc(authUser.uid).set(data);
   console.log(`Created ${role} account ${authUser.uid}`);
 })().catch((err) => {
   console.error('Failed to create staff account:', err.message);

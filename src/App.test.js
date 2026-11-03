@@ -43,26 +43,41 @@ jest.mock('firebase/firestore', () => ({
 }));
 
 // Mock dashboards to focus purely on App auth state and transition logic
-jest.mock('./Dashboard', () => ({ onLogout, user, userData }) => (
-  <div data-testid="reporter-dashboard">
-    <span>Reporter: {userData.name}</span>
-    <button onClick={onLogout} data-testid="reporter-logout">Logout</button>
-  </div>
-));
+// mockDashboardCleanup records when a dashboard's effect cleanup (where real
+// dashboards unsubscribe their Firestore listeners) runs.
+const mockDashboardCleanup = jest.fn();
+jest.mock('./Dashboard', () => ({ onLogout, user, userData }) => {
+  const { useEffect } = require('react');
+  useEffect(() => () => mockDashboardCleanup('reporter'), []);
+  return (
+    <div data-testid="reporter-dashboard">
+      <span>Reporter: {userData.name}</span>
+      <button onClick={onLogout} data-testid="reporter-logout">Logout</button>
+    </div>
+  );
+});
 
-jest.mock('./DispatcherDashboard', () => ({ onLogout, user, userData }) => (
-  <div data-testid="dispatcher-dashboard">
-    <span>Dispatcher: {userData.name}</span>
-    <button onClick={onLogout} data-testid="dispatcher-logout">Logout</button>
-  </div>
-));
+jest.mock('./DispatcherDashboard', () => ({ onLogout, user, userData }) => {
+  const { useEffect } = require('react');
+  useEffect(() => () => mockDashboardCleanup('dispatcher'), []);
+  return (
+    <div data-testid="dispatcher-dashboard">
+      <span>Dispatcher: {userData.name}</span>
+      <button onClick={onLogout} data-testid="dispatcher-logout">Logout</button>
+    </div>
+  );
+});
 
-jest.mock('./ResponderDashboard', () => ({ onLogout, user, userData }) => (
-  <div data-testid="responder-dashboard">
-    <span>Responder: {userData.name}</span>
-    <button onClick={onLogout} data-testid="responder-logout">Logout</button>
-  </div>
-));
+jest.mock('./ResponderDashboard', () => ({ onLogout, user, userData }) => {
+  const { useEffect } = require('react');
+  useEffect(() => () => mockDashboardCleanup('responder'), []);
+  return (
+    <div data-testid="responder-dashboard">
+      <span>Responder: {userData.name}</span>
+      <button onClick={onLogout} data-testid="responder-logout">Logout</button>
+    </div>
+  );
+});
 
 describe('Alert24 Authentication & Logout Bug Fix Verification', () => {
   let authCallback;
@@ -284,6 +299,62 @@ describe('Alert24 Authentication & Logout Bug Fix Verification', () => {
     expect(screen.queryByTestId('reporter-dashboard')).not.toBeInTheDocument();
     expect(screen.queryByText(/error loading user data/i)).not.toBeInTheDocument();
   });
+
+  test('6. Logout unmounts the dashboard (listener cleanup) BEFORE Firebase signOut is called', async () => {
+    render(<App />);
+
+    const responderUser = { uid: 'resp-order', email: 'order@alert24.com' };
+    auth.currentUser = responderUser;
+    act(() => { authCallback(responderUser); });
+    act(() => {
+      snapshotCallback({
+        exists: () => true,
+        data: () => ({ name: 'Order Responder', role: 'responder' }),
+      });
+    });
+    expect(screen.getByTestId('responder-dashboard')).toBeInTheDocument();
+
+    const order = [];
+    mockDashboardCleanup.mockImplementation((role) => order.push(`cleanup:${role}`));
+    authModule.signOut.mockImplementation(() => { order.push('signOut'); return Promise.resolve(); });
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('responder-logout'));
+    });
+
+    expect(order).toEqual(['cleanup:responder', 'signOut']);
+  });
+
+  test('7. Stale user-doc snapshot from a previous session is ignored after switching accounts', () => {
+    const callbacks = [];
+    firestoreModule.onSnapshot.mockImplementation((docRef, onNext) => {
+      callbacks.push(onNext);
+      return jest.fn();
+    });
+
+    render(<App />);
+
+    const responder = { uid: 'resp-old', email: 'old@alert24.com' };
+    auth.currentUser = responder;
+    act(() => { authCallback(responder); });
+
+    // Account switches before the responder's snapshot arrives
+    const dispatcher = { uid: 'disp-new', email: 'new@alert24.com' };
+    auth.currentUser = dispatcher;
+    act(() => { authCallback(dispatcher); });
+
+    // Late snapshot for the old responder session must not mount anything
+    act(() => {
+      callbacks[0]({ exists: () => true, data: () => ({ name: 'Old', role: 'responder' }) });
+    });
+    expect(screen.queryByTestId('responder-dashboard')).not.toBeInTheDocument();
+    expect(screen.getByText(/verifying credentials/i)).toBeInTheDocument();
+
+    act(() => {
+      callbacks[1]({ exists: () => true, data: () => ({ name: 'New', role: 'dispatcher' }) });
+    });
+    expect(screen.getByTestId('dispatcher-dashboard')).toHaveTextContent('Dispatcher: New');
+  });
 });
 
 describe('Alert24 Login and Signup Validation and UI Refinements', () => {
@@ -440,5 +511,84 @@ describe('Alert24 Login and Signup Validation and UI Refinements', () => {
     expect(authModule.signOut).toHaveBeenCalled();
     expect(screen.getByText('Account created successfully. Please log in.')).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: /sign in/i })).toBeInTheDocument();
+  });
+
+  test('auth: cached sessionStorage profile does NOT mount the dashboard before the Firestore user document confirms it', async () => {
+    let snapshotCallback;
+    firestoreModule.onSnapshot.mockImplementation((docRef, onNext) => {
+      snapshotCallback = onNext;
+      return jest.fn();
+    });
+    const mockUser = { uid: 'cached-user-999', email: 'cached@alert24.co.za' };
+    auth.currentUser = mockUser;
+    sessionStorage.setItem('alert24_user_cached-user-999', JSON.stringify({
+      role: 'dispatcher',
+      name: 'Captain Cached',
+      themePreference: 'dark'
+    }));
+
+    render(<App />);
+
+    // Auth state resolves
+    act(() => {
+      authCallback(mockUser);
+    });
+
+    // Cached profile alone must not mount the dashboard
+    expect(screen.queryByTestId('dispatcher-dashboard')).not.toBeInTheDocument();
+    expect(screen.getByText(/verifying credentials/i)).toBeInTheDocument();
+
+    // Firestore confirms the profile
+    act(() => {
+      snapshotCallback({
+        exists: () => true,
+        data: () => ({ role: 'dispatcher', name: 'Captain Confirmed', themePreference: 'dark' }),
+      });
+    });
+
+    expect(screen.getByTestId('dispatcher-dashboard')).toBeInTheDocument();
+    expect(screen.getByText('Dispatcher: Captain Confirmed')).toBeInTheDocument();
+
+    sessionStorage.clear();
+  });
+
+  test('isolation: logout completely purges user session profile and stats cache', async () => {
+    let snapshotCallback;
+    firestoreModule.onSnapshot.mockImplementation((docRef, onNext) => {
+      snapshotCallback = onNext;
+      return jest.fn();
+    });
+    const mockUser = { uid: 'user-to-logout', email: 'logout@alert24.co.za' };
+    auth.currentUser = mockUser;
+    sessionStorage.setItem('alert24_user_user-to-logout', JSON.stringify({
+      role: 'reporter',
+      name: 'Bob Reporter'
+    }));
+    sessionStorage.setItem('alert24_stats_reporter_user-to-logout', JSON.stringify({
+      total: 5, pending: 1, inProgress: 2, resolved: 2
+    }));
+
+    render(<App />);
+
+    act(() => {
+      authCallback(mockUser);
+    });
+    act(() => {
+      snapshotCallback({
+        exists: () => true,
+        data: () => ({ role: 'reporter', name: 'Bob Reporter' }),
+      });
+    });
+
+    expect(screen.getByTestId('reporter-dashboard')).toBeInTheDocument();
+
+    // Click logout
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('reporter-logout'));
+    });
+
+    // Keys must be purged
+    expect(sessionStorage.getItem('alert24_user_user-to-logout')).toBeNull();
+    expect(sessionStorage.getItem('alert24_stats_reporter_user-to-logout')).toBeNull();
   });
 });

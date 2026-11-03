@@ -1,4 +1,4 @@
-import React, { useState, useEffect, Suspense, lazy } from 'react';
+import React, { useState, useEffect, useMemo, Suspense, lazy } from 'react';
 import { db } from './firebase';
 import {
   collection,
@@ -170,6 +170,16 @@ const ResponderDashboard = ({ onLogout, user, userData, theme, onThemeChange }) 
 
   // Incidents and statuses
   const [incidents, setIncidents] = useState([]);
+  const [incidentsLoading, setIncidentsLoading] = useState(true);
+  const [cachedStats] = useState(() => {
+    try {
+      if (!user?.uid) return null;
+      const raw = sessionStorage.getItem(`alert24_stats_responder_${user.uid}`);
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  });
   const [activeIncident, setActiveIncident] = useState(null);
   const [statusLogs, setStatusLogs] = useState([]);
   const [fieldNotes, setFieldNotes] = useState('');
@@ -223,6 +233,7 @@ const ResponderDashboard = ({ onLogout, user, userData, theme, onThemeChange }) 
           return b.createdAt.toMillis() - a.createdAt.toMillis();
         });
         setIncidents(data);
+        setIncidentsLoading(false);
         const active = data.find(
           (i) => i.status === 'Assigned' || i.status === 'En Route' || i.status === 'On Scene'
         );
@@ -231,6 +242,7 @@ const ResponderDashboard = ({ onLogout, user, userData, theme, onThemeChange }) 
       (err) => {
         console.error('Error fetching incidents:', err);
         setErrorBanner('Error loading incidents');
+        setIncidentsLoading(false);
       }
     );
     return () => {
@@ -239,9 +251,13 @@ const ResponderDashboard = ({ onLogout, user, userData, theme, onThemeChange }) 
   }, [user]);
 
   /* ── Fetch status logs for active incident ── */
+  // Keyed on the incident ID, not the incident object: every incidents snapshot
+  // (including local pending-write and server-ack snapshots) creates a new object,
+  // which previously tore down and re-created this identical listener each time.
+  const activeIncidentId = activeIncident?.incidentId || null;
   useEffect(() => {
-    if (!activeIncident) { setStatusLogs([]); return; }
-    const q = query(collection(db, 'statusLogs'), where('incidentId', '==', activeIncident.incidentId));
+    if (!activeIncidentId) { setStatusLogs([]); return; }
+    const q = query(collection(db, 'statusLogs'), where('incidentId', '==', activeIncidentId));
     const unsubscribe = onSnapshot(
       q,
       (snapshot) => {
@@ -259,7 +275,7 @@ const ResponderDashboard = ({ onLogout, user, userData, theme, onThemeChange }) 
     return () => {
       if (typeof unsubscribe === 'function') unsubscribe();
     };
-  }, [activeIncident]);
+  }, [activeIncidentId]);
 
   /* ── Handlers ── */
   const markNotificationRead = (notificationId) => {
@@ -396,13 +412,23 @@ const ResponderDashboard = ({ onLogout, user, userData, theme, onThemeChange }) 
   };
 
   /* ── Stats ── */
-  const stats = {
+  const liveStats = useMemo(() => ({
     total:     incidents.length,
     completed: incidents.filter((i) => i.status === 'Resolved').length,
     active:    incidents.filter(
       (i) => i.status === 'Assigned' || i.status === 'En Route' || i.status === 'On Scene'
     ).length
-  };
+  }), [incidents]);
+
+  useEffect(() => {
+    if (!incidentsLoading && user?.uid) {
+      try {
+        sessionStorage.setItem(`alert24_stats_responder_${user.uid}`, JSON.stringify(liveStats));
+      } catch {}
+    }
+  }, [liveStats, incidentsLoading, user]);
+
+  const stats = incidentsLoading && cachedStats ? cachedStats : liveStats;
 
 
 
@@ -564,7 +590,13 @@ const ResponderDashboard = ({ onLogout, user, userData, theme, onThemeChange }) 
                       <circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/>
                     </svg>
                   </div>
-                  <div className="rd-stat-num">{stats.total}</div>
+                  <div className="rd-stat-num">
+                    {incidentsLoading && !cachedStats ? (
+                      <span className="rd-stat-skeleton" aria-label="Loading statistic" />
+                    ) : (
+                      stats.total
+                    )}
+                  </div>
                   <div className="rd-stat-lbl">Total Jobs Handled</div>
                 </div>
 
@@ -574,7 +606,13 @@ const ResponderDashboard = ({ onLogout, user, userData, theme, onThemeChange }) 
                       <path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>
                     </svg>
                   </div>
-                  <div className="rd-stat-num">{stats.completed}</div>
+                  <div className="rd-stat-num">
+                    {incidentsLoading && !cachedStats ? (
+                      <span className="rd-stat-skeleton" aria-label="Loading statistic" />
+                    ) : (
+                      stats.completed
+                    )}
+                  </div>
                   <div className="rd-stat-lbl">Completed</div>
                 </div>
 
@@ -584,7 +622,13 @@ const ResponderDashboard = ({ onLogout, user, userData, theme, onThemeChange }) 
                       <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
                     </svg>
                   </div>
-                  <div className="rd-stat-num">{stats.active}</div>
+                  <div className="rd-stat-num">
+                    {incidentsLoading && !cachedStats ? (
+                      <span className="rd-stat-skeleton" aria-label="Loading statistic" />
+                    ) : (
+                      stats.active
+                    )}
+                  </div>
                   <div className="rd-stat-lbl">Active Now</div>
                 </div>
               </div>
