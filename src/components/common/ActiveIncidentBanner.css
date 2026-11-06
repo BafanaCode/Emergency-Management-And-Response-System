@@ -1,0 +1,386 @@
+/* =========================================================
+   Alert24 — Standardized Active Incident Summary Bar
+   Shared across Reporter & Responder Dashboards
+   Supports Dark Mode & Light Mode (Command Center Hybrid Slate)
+   ========================================================= */
+
+.a24-incident-banner {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px 20px;
+  margin-bottom: 18px;
+  box-shadow: var(--shadow-surface);
+  overflow: hidden;
+}
+
+.a24-incident-banner::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 3px;
+  background: #64748b;
+}
+
+.a24-incident-banner--active {
+  border-color: var(--border-strong);
+}
+
+.a24-incident-banner--active::before {
+  background: #dc2626;
+}
+
+.a24-incident-banner--idle::before {
+  background: #22c55e;
+}
+
+.a24-incident-banner__main {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  min-width: 0;
+  flex: 1;
+}
+
+.a24-incident-banner--idle .a24-incident-banner__main {
+  align-items: center;
+}
+
+.a24-incident-banner__indicator-wrap {
+  padding-top: 4px;
+  flex-shrink: 0;
+}
+
+.a24-incident-banner__dot {
+  display: block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.a24-incident-banner__dot--active {
+  background-color: #dc2626;
+  box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.16);
+  animation: a24-incident-pulse 2.2s ease-in-out infinite;
+}
+
+.a24-incident-banner__dot--idle {
+  background-color: #22c55e;
+  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.14);
+}
+
+@keyframes a24-incident-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.18);
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgba(220, 38, 38, 0.05);
+  }
+}
+
+.a24-incident-banner__content {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+  flex: 1;
+}
+
+/* Row 1: Eyebrow & Status Metadata */
+.a24-incident-banner__meta-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.a24-incident-banner__eyebrow {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #dc2626;
+  line-height: 1.2;
+}
+
+:root[data-theme="dark"] .a24-incident-banner__eyebrow {
+  color: #f87171;
+}
+
+.a24-incident-banner__meta-sep {
+  width: 1px;
+  height: 12px;
+  background: var(--border-strong);
+  flex-shrink: 0;
+}
+
+.a24-incident-banner__status-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.a24-incident-banner__status-label {
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.a24-incident-banner__status-pill,
+.a24-incident-banner__severity-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border-radius: 5px;
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.a24-incident-banner__status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+
+/* Status Pill Colors — Dark Mode */
+.a24-status-reported {
+  background: rgba(100, 116, 139, 0.18);
+  color: #cbd5e1;
+  border: 1px solid rgba(100, 116, 139, 0.35);
+}
+
+.a24-status-assigned {
+  background: rgba(37, 99, 235, 0.14);
+  color: #60a5fa;
+  border: 1px solid rgba(37, 99, 235, 0.30);
+}
+
+.a24-status-en-route {
+  background: rgba(124, 58, 237, 0.14);
+  color: #a78bfa;
+  border: 1px solid rgba(124, 58, 237, 0.30);
+}
+
+.a24-status-on-scene {
+  background: rgba(217, 119, 6, 0.14);
+  color: #fbbf24;
+  border: 1px solid rgba(217, 119, 6, 0.30);
+}
+
+.a24-status-resolved {
+  background: rgba(22, 163, 74, 0.14);
+  color: #4ade80;
+  border: 1px solid rgba(22, 163, 74, 0.30);
+}
+
+/* Status Pill Colors — Light Mode */
+[data-theme="light"] .a24-status-reported {
+  background: #f1f5f9;
+  color: #334155;
+  border-color: #cbd5e1;
+}
+
+[data-theme="light"] .a24-status-assigned {
+  background: #eff6ff;
+  color: #1d4ed8;
+  border-color: #bfdbfe;
+}
+
+[data-theme="light"] .a24-status-en-route {
+  background: #f5f3ff;
+  color: #6d28d9;
+  border-color: #ddd6fe;
+}
+
+[data-theme="light"] .a24-status-on-scene {
+  background: #fffbeb;
+  color: #b45309;
+  border-color: #fde68a;
+}
+
+[data-theme="light"] .a24-status-resolved {
+  background: #f0fdf4;
+  color: #15803d;
+  border-color: #bbf7d0;
+}
+
+/* Severity Pill Colors */
+.a24-severity-critical {
+  background: rgba(220, 38, 38, 0.14);
+  color: #f87171;
+  border: 1px solid rgba(220, 38, 38, 0.28);
+}
+
+.a24-severity-serious {
+  background: rgba(234, 88, 12, 0.14);
+  color: #fb923c;
+  border: 1px solid rgba(234, 88, 12, 0.28);
+}
+
+.a24-severity-minor {
+  background: rgba(217, 119, 6, 0.14);
+  color: #fbbf24;
+  border: 1px solid rgba(217, 119, 6, 0.28);
+}
+
+[data-theme="light"] .a24-severity-critical {
+  background: #fef2f2;
+  color: #b91c1c;
+  border-color: #fecaca;
+}
+
+[data-theme="light"] .a24-severity-serious {
+  background: #fff7ed;
+  color: #c2410c;
+  border-color: #fed7aa;
+}
+
+[data-theme="light"] .a24-severity-minor {
+  background: #fefce8;
+  color: #a16207;
+  border-color: #fef08a;
+}
+
+/* Row 2: Prominent Incident Type */
+.a24-incident-banner__type {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.02em;
+  line-height: 1.3;
+}
+
+/* Row 3: Location with Icon */
+.a24-incident-banner__location {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.35;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.a24-incident-banner__loc-icon {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.a24-incident-banner__address {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Idle State Typography */
+.a24-incident-banner__idle-row {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+}
+
+.a24-incident-banner__idle-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.a24-incident-banner__idle-desc {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+/* Action Buttons */
+.a24-incident-banner__actions {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+}
+
+.a24-incident-banner__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 8px 16px;
+  border-radius: 7px;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.16s ease, border-color 0.16s ease, color 0.16s ease;
+  white-space: nowrap;
+}
+
+.a24-incident-banner__btn--action {
+  background: var(--bg-surface-2);
+  color: var(--text-primary);
+  border: 1px solid var(--border-strong);
+}
+
+.a24-incident-banner__btn--action:hover {
+  background: var(--bg-hover-strong);
+  border-color: var(--text-muted);
+}
+
+[data-theme="light"] .a24-incident-banner__btn--action {
+  background: #0f172a;
+  color: #ffffff;
+  border-color: #0f172a;
+}
+
+[data-theme="light"] .a24-incident-banner__btn--action:hover {
+  background: #1e293b;
+  border-color: #1e293b;
+}
+
+.a24-incident-banner__btn--primary {
+  background: #dc2626;
+  color: #ffffff;
+  border: 1px solid #dc2626;
+}
+
+.a24-incident-banner__btn--primary:hover {
+  background: #b91c1c;
+  border-color: #b91c1c;
+}
+
+/* Responsive adjustments */
+@media (max-width: 640px) {
+  .a24-incident-banner {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 14px;
+    padding: 14px 16px;
+  }
+
+  .a24-incident-banner__address {
+    white-space: normal;
+    word-break: break-word;
+  }
+
+  .a24-incident-banner__actions,
+  .a24-incident-banner__btn {
+    width: 100%;
+  }
+
+  .a24-incident-banner__btn {
+    min-height: 42px;
+  }
+}
+

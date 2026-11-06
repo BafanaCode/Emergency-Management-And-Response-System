@@ -1,8 +1,32 @@
+jest.mock('../firebase', () => ({
+  db: {},
+}));
+
 jest.mock('firebase/firestore', () => ({
+  collection: jest.fn((db, name) => ({ _colName: name })),
+  query: jest.fn((col, w) => ({ _colName: col?._colName, _where: w })),
+  where: jest.fn((field, op, val) => ({ field, op, val })),
+  onSnapshot: jest.fn(),
   doc: jest.fn((db, col, id) => ({ id, path: `${col}/${id}` })),
+  updateDoc: jest.fn(),
+  setDoc: jest.fn(),
+  writeBatch: jest.fn(),
   serverTimestamp: jest.fn(() => 'SERVER_TIMESTAMP'),
 }));
 
+import React from 'react';
+import { render, screen, fireEvent, act } from '@testing-library/react';
+import {
+  collection,
+  query,
+  where,
+  doc,
+  onSnapshot,
+  setDoc,
+  updateDoc,
+  serverTimestamp,
+} from 'firebase/firestore';
+import useNotifications from '../hooks/useNotifications';
 import {
   DISPATCHER_CHANNEL,
   NOTIFICATION_TYPES,
@@ -16,6 +40,13 @@ import {
 } from './notifications';
 
 describe('notification utils', () => {
+  beforeEach(() => {
+    collection.mockImplementation((db, name) => ({ _colName: name }));
+    query.mockImplementation((col, w) => ({ _colName: col?._colName, _where: w }));
+    where.mockImplementation((field, op, val) => ({ field, op, val }));
+    doc.mockImplementation((db, col, id) => ({ id, path: `${col}/${id}` }));
+    serverTimestamp.mockImplementation(() => 'SERVER_TIMESTAMP');
+  });
   test('constants and type mapping', () => {
     expect(DISPATCHER_CHANNEL).toBe('dispatchers');
     expect(TYPE_LABELS[NOTIFICATION_TYPES.REPORTED]).toBe('New report');
@@ -93,5 +124,84 @@ describe('notification utils', () => {
       'Resolved'
     );
     expect(mockBatch.set).toHaveBeenCalledTimes(2);
+  });
+
+  test('useNotifications marks dispatcher channel notifications as read and falls back gracefully on permission-denied', async () => {
+    window.localStorage.clear();
+    const listeners = [];
+    onSnapshot.mockImplementation((q, _meta, onNext, onError) => {
+      listeners.push({ q, onNext, onError });
+      return jest.fn();
+    });
+
+    // Simulate permission-denied on notificationReads, while updateDoc on notifications succeeds
+    const permDenied = new Error('Missing or insufficient permissions.');
+    permDenied.code = 'permission-denied';
+    setDoc.mockRejectedValue(permDenied);
+    updateDoc.mockResolvedValue(undefined);
+
+    function Harness() {
+      const { notifications, unreadCount, error, actionError, markRead } = useNotifications(
+        { uid: 'disp-1' },
+        'dispatcher'
+      );
+      return (
+        <div>
+          <span data-testid="unread">{unreadCount}</span>
+          <span data-testid="err">{error || actionError || 'none'}</span>
+          {notifications.map((n) => (
+            <button key={n.notificationId} onClick={() => markRead(n)}>
+              {n.notificationId}:{n.isRead ? 'read' : 'unread'}
+            </button>
+          ))}
+        </div>
+      );
+    }
+
+    render(<Harness />);
+
+    await act(async () => {
+      listeners.forEach(({ q, onNext, onError }) => {
+        if (q._colName === 'notifications' && q._where?.val === 'disp-1') {
+          onNext({ docs: [], metadata: { fromCache: false } });
+        } else if (q._colName === 'notifications' && q._where?.val === 'dispatchers') {
+          onNext({
+            docs: [
+              {
+                id: 'inc1_reported_dispatchers',
+                data: () => ({
+                  userId: 'dispatchers',
+                  incidentId: 'inc1',
+                  type: 'incident_reported',
+                  message: 'New Fire incident reported (Critical)',
+                  isRead: false,
+                  createdAt: { toMillis: () => 1000 },
+                }),
+              },
+            ],
+            metadata: { fromCache: false },
+          });
+        } else if (q._colName === 'notificationReads') {
+          onError(permDenied);
+        }
+      });
+    });
+
+    expect(screen.getByTestId('unread').textContent).toBe('1');
+    expect(screen.getByTestId('err').textContent).toBe('none');
+    expect(screen.getByText('inc1_reported_dispatchers:unread')).toBeInTheDocument();
+
+    await act(async () => {
+      fireEvent.click(screen.getByText('inc1_reported_dispatchers:unread'));
+    });
+
+    expect(screen.getByTestId('unread').textContent).toBe('0');
+    expect(screen.getByTestId('err').textContent).toBe('none');
+    expect(screen.getByText('inc1_reported_dispatchers:read')).toBeInTheDocument();
+    expect(updateDoc).toHaveBeenCalledWith(
+      { id: 'inc1_reported_dispatchers', path: 'notifications/inc1_reported_dispatchers' },
+      { isRead: true }
+    );
+    window.localStorage.clear();
   });
 });

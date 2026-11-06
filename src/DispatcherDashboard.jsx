@@ -31,6 +31,7 @@ import backgroundImage from "./images/image4.webp";
 import ViewIncidentModal from "./components/dispatcher/ViewIncidentModal";
 import AssignIncidentModal from "./components/dispatcher/AssignIncidentModal";
 import ReportsTab from "./components/dispatcher/ReportsTab";
+import HeaderUserIdentity from "./components/common/HeaderUserIdentity";
 import NotificationCenter from "./components/notifications/NotificationCenter";
 import useNotifications from "./hooks/useNotifications";
 import { NOTIFICATION_TYPES } from "./utils/notifications";
@@ -50,8 +51,8 @@ const formatDate = (timestamp) => {
   const date = timestamp.toDate();
   const day = String(date.getDate()).padStart(2, "0");
   const months = [
-    "Jan","Feb","Mar","Apr","May","Jun",
-    "Jul","Aug","Sep","Oct","Nov","Dec",
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
   ];
   const month = months[date.getMonth()];
   const year = date.getFullYear();
@@ -70,55 +71,55 @@ const IconShield = ({ size = 20, className = "" }) => (
 
 const IconHome = () => (
   <svg className="dd-sidebar-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M3 9L12 2L21 9V20C21 20.5 20.79 21.04 20.41 21.41C20.04 21.79 19.5 22 19 22H5C4.47 22 3.96 21.79 3.59 21.41C3.21 21.04 3 20.5 3 20V9Z"/>
-    <path d="M9 22V12H15V22"/>
+    <path d="M3 9L12 2L21 9V20C21 20.5 20.79 21.04 20.41 21.41C20.04 21.79 19.5 22 19 22H5C4.47 22 3.96 21.79 3.59 21.41C3.21 21.04 3 20.5 3 20V9Z" />
+    <path d="M9 22V12H15V22" />
   </svg>
 );
 
 const IconFlame = () => (
   <svg className="dd-sidebar-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M8.5 14.5A2.5 2.5 0 0011 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 11-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 002.5 2.5z"/>
+    <path d="M8.5 14.5A2.5 2.5 0 0011 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 11-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 002.5 2.5z" />
   </svg>
 );
 
 const IconUsers = () => (
   <svg className="dd-sidebar-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/>
-    <circle cx="9" cy="7" r="4"/>
-    <path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/>
+    <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" />
+    <circle cx="9" cy="7" r="4" />
+    <path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75" />
   </svg>
 );
 
 const IconFile = () => (
   <svg className="dd-sidebar-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M14 2H6C5.47 2 4.96 2.21 4.59 2.59C4.21 2.96 4 3.47 4 4V20C4 20.53 4.21 21.04 4.59 21.41C4.96 21.79 5.47 22 6 22H18C18.53 22 19.04 21.79 19.41 21.41C19.79 21.04 20 20.53 20 20V8L14 2Z"/>
-    <path d="M14 2V8H20M16 13H8M16 17H8M10 9H8"/>
+    <path d="M14 2H6C5.47 2 4.96 2.21 4.59 2.59C4.21 2.96 4 3.47 4 4V20C4 20.53 4.21 21.04 4.59 21.41C4.96 21.79 5.47 22 6 22H18C18.53 22 19.04 21.79 19.41 21.41C19.79 21.04 20 20.53 20 20V8L14 2Z" />
+    <path d="M14 2V8H20M16 13H8M16 17H8M10 9H8" />
   </svg>
 );
 
 const IconMap = () => (
   <svg className="dd-sidebar-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/>
-    <circle cx="12" cy="10" r="3"/>
+    <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z" />
+    <circle cx="12" cy="10" r="3" />
   </svg>
 );
 
 const IconBell = () => (
   <svg className="dd-sidebar-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M18 8.5C18 5.46 15.54 3 12.5 3S7 5.46 7 8.5c0 3-1.5 5-1.5 5h13s-1.5-2-1.5-5zM15 17a3 3 0 11-6 0"/>
+    <path d="M18 8.5C18 5.46 15.54 3 12.5 3S7 5.46 7 8.5c0 3-1.5 5-1.5 5h13s-1.5-2-1.5-5zM15 17a3 3 0 11-6 0" />
   </svg>
 );
 
 const IconCheck = () => (
   <svg width="10" height="10" viewBox="0 0 12 12" fill="none">
-    <path d="M2 6L5 9L10 3" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+    <path d="M2 6L5 9L10 3" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
   </svg>
 );
 
 const IconSettingsGear = () => (
   <svg className="dd-sidebar-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <circle cx="12" cy="12" r="3"/>
-    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+    <circle cx="12" cy="12" r="3" />
+    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
   </svg>
 );
 
@@ -126,8 +127,8 @@ const IconSettingsGear = () => (
 const SeverityBadge = ({ severity }) => {
   const cls = {
     Critical: "dd-badge dd-badge-critical",
-    Serious:  "dd-badge dd-badge-serious",
-    Minor:    "dd-badge dd-badge-minor",
+    Serious: "dd-badge dd-badge-serious",
+    Minor: "dd-badge dd-badge-minor",
   }[severity] || "dd-badge dd-badge-minor";
   return <span className={cls}>{severity}</span>;
 };
@@ -423,7 +424,7 @@ const DispatcherDashboard = ({ onLogout, user, userData, theme, onThemeChange })
     if (!incidentsLoading && user?.uid) {
       try {
         sessionStorage.setItem(`alert24_stats_dispatcher_${user.uid}`, JSON.stringify(liveStats));
-      } catch {}
+      } catch { }
     }
   }, [liveStats, incidentsLoading, user]);
 
@@ -659,13 +660,15 @@ const DispatcherDashboard = ({ onLogout, user, userData, theme, onThemeChange })
         </div>
 
         <div className="dd-nav-right">
-          <div className="dd-user-info">
-            <span className="dd-user-name">{userData?.name || "Dispatcher"}</span>
-            <span className="dd-user-email">{user?.email}</span>
-          </div>
-          <button className="dd-logout-btn" onClick={onLogout}>
-            Sign Out
-          </button>
+          <HeaderUserIdentity
+            name={userData?.name}
+            email={user?.email}
+            roleLabel="Dispatcher"
+            onProfileClick={() => setActiveTab("settings")}
+            onLogout={onLogout}
+            logoutLabel="Sign Out"
+            logoutClassName="dd-logout-btn"
+          />
         </div>
       </nav>
 
@@ -686,14 +689,36 @@ const DispatcherDashboard = ({ onLogout, user, userData, theme, onThemeChange })
         {/* ── Sidebar ── */}
         <aside className="dd-sidebar">
           <nav className="dd-sidebar-nav">
+            <div className="sidebar-group-label">Dispatch Operations</div>
             {[
-              { id: "overview",          label: "Overview",          shortLabel: "Overview",  Icon: IconHome },
-              { id: "live-incidents",    label: "Live Incidents",    shortLabel: "Incidents", Icon: IconFlame },
-              { id: "incident-map",      label: "Incident Map",      shortLabel: "Map",       Icon: IconMap },
-              { id: "manage-responders", label: "Manage Responders", shortLabel: "Units",     Icon: IconUsers },
-              { id: "reports",           label: "Reports",           shortLabel: "Reports",   Icon: IconFile },
-              { id: "notifications",     label: "Notifications",     shortLabel: "Alerts",    Icon: IconBell },
-              { id: "settings",          label: "Settings",          shortLabel: "Settings",  Icon: IconSettingsGear },
+              { id: "overview", label: "Overview", shortLabel: "Overview", Icon: IconHome },
+              { id: "live-incidents", label: "Live Incidents", shortLabel: "Incidents", Icon: IconFlame },
+              { id: "incident-map", label: "Incident Map", shortLabel: "Map", Icon: IconMap },
+              { id: "manage-responders", label: "Manage Responders", shortLabel: "Units", Icon: IconUsers },
+              { id: "reports", label: "Reports", shortLabel: "Reports", Icon: IconFile },
+            ].map(({ id, label, shortLabel, Icon }) => (
+              <button
+                key={id}
+                className={`dd-sidebar-btn ${activeTab === id ? "active" : ""}`}
+                onClick={() => setActiveTab(id)}
+              >
+                <Icon />
+                <span className="dd-sidebar-label">
+                  <span className="dd-label-full">{label}</span>
+                  <span className="dd-label-short">{shortLabel}</span>
+                </span>
+                {id === "live-incidents" && stats.unassigned > 0 && (
+                  <span className="dd-notif-badge">{stats.unassigned}</span>
+                )}
+              </button>
+            ))}
+
+            <div className="sidebar-group-divider" aria-hidden="true" />
+            <div className="sidebar-group-label">System</div>
+
+            {[
+              { id: "notifications", label: "Notifications", shortLabel: "Alerts", Icon: IconBell },
+              { id: "settings", label: "Settings", shortLabel: "Settings", Icon: IconSettingsGear },
             ].map(({ id, label, shortLabel, Icon }) => (
               <button
                 key={id}
@@ -711,6 +736,27 @@ const DispatcherDashboard = ({ onLogout, user, userData, theme, onThemeChange })
               </button>
             ))}
           </nav>
+
+          <div className="sidebar-ops-card" aria-label="Control room queue status">
+            <div className="sidebar-ops-header">
+              <span className="sidebar-ops-title">Dispatch Queue</span>
+              <span className={`sidebar-ops-pill ${stats.unassigned > 0 ? "is-alert" : "is-live"}`}>
+                <span className="sidebar-ops-dot" />
+                {stats.unassigned > 0 ? `${stats.unassigned} Pending` : "Queue Clear"}
+              </span>
+            </div>
+            <div className="sidebar-ops-metrics">
+              <div className="sidebar-ops-metric">
+                <span className="sidebar-ops-metric-val">{stats.active}</span>
+                <span className="sidebar-ops-metric-lbl">Active Cases</span>
+              </div>
+              <div className="sidebar-ops-metric">
+                <span className="sidebar-ops-metric-val">{stats.available}</span>
+                <span className="sidebar-ops-metric-lbl">Units Ready</span>
+              </div>
+            </div>
+          </div>
+
           <div className="dd-sidebar-footer">Alert24 Dispatch Ops</div>
         </aside>
 
@@ -732,7 +778,7 @@ const DispatcherDashboard = ({ onLogout, user, userData, theme, onThemeChange })
                 <div className="dd-stat-card accent-blue">
                   <div className="dd-stat-icon-wrap blue">
                     <svg viewBox="0 0 24 24" fill="none" stroke="#3b82f6" strokeWidth="2.5" strokeLinecap="round">
-                      <circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/>
+                      <circle cx="12" cy="12" r="10" /><path d="M12 8v4l3 3" />
                     </svg>
                   </div>
                   <div className="dd-stat-num">
@@ -748,7 +794,7 @@ const DispatcherDashboard = ({ onLogout, user, userData, theme, onThemeChange })
                 <div className="dd-stat-card accent-red">
                   <div className="dd-stat-icon-wrap red">
                     <svg viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2.5" strokeLinecap="round">
-                      <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+                      <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" />
                     </svg>
                   </div>
                   <div className="dd-stat-num">
@@ -764,7 +810,7 @@ const DispatcherDashboard = ({ onLogout, user, userData, theme, onThemeChange })
                 <div className="dd-stat-card accent-orange">
                   <div className="dd-stat-icon-wrap orange">
                     <svg viewBox="0 0 24 24" fill="none" stroke="#f97316" strokeWidth="2.5" strokeLinecap="round">
-                      <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+                      <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
                     </svg>
                   </div>
                   <div className="dd-stat-num">
@@ -780,7 +826,7 @@ const DispatcherDashboard = ({ onLogout, user, userData, theme, onThemeChange })
                 <div className="dd-stat-card accent-green">
                   <div className="dd-stat-icon-wrap green">
                     <svg viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="2.5" strokeLinecap="round">
-                      <path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>
+                      <path d="M22 11.08V12a10 10 0 11-5.93-9.14" /><polyline points="22 4 12 14.01 9 11.01" />
                     </svg>
                   </div>
                   <div className="dd-stat-num">
@@ -796,8 +842,8 @@ const DispatcherDashboard = ({ onLogout, user, userData, theme, onThemeChange })
                 <div className="dd-stat-card accent-amber">
                   <div className="dd-stat-icon-wrap amber">
                     <svg viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth="2.5" strokeLinecap="round">
-                      <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/>
-                      <path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/>
+                      <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" /><circle cx="9" cy="7" r="4" />
+                      <path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75" />
                     </svg>
                   </div>
                   <div className="dd-stat-num">

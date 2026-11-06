@@ -275,9 +275,14 @@ body,
    SETTINGS — Theme Picker UI (shared across all dashboards)
    ════════════════════════════════════════════════════════ */
 
-/* Settings page container */
+/* Settings page container — responsive 2-column grid on desktop */
 .settings-page {
-  max-width: 680px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+  width: 100%;
+  max-width: 100%;
+  align-items: stretch;
 }
 
 /* Settings section card */
@@ -285,9 +290,17 @@ body,
   background: var(--bg-surface);
   border: 1px solid var(--border);
   border-radius: 12px;
-  padding: 24px 26px;
-  margin-bottom: 18px;
+  padding: 22px 24px;
+  margin-bottom: 0;
   box-shadow: var(--shadow-surface);
+  display: flex;
+  flex-direction: column;
+}
+
+@media (max-width: 960px) {
+  .settings-page {
+    grid-template-columns: 1fr;
+  }
 }
 
 .settings-section-title {
@@ -710,5 +723,143 @@ select:focus:not(:focus-visible) {
 [data-theme="light"] ::-webkit-scrollbar-thumb:hover {
   background: rgba(100, 116, 139, 0.38);
 }
+
+/* ════════════════════════════════════════════════════════
+   SHARED COMMAND CENTER SIDEBAR & WORKSPACE REFINEMENTS
+   ════════════════════════════════════════════════════════ */
+
+/* Clean Slate-50 canvas in Light Mode without dark background photo bleed */
+[data-theme="light"] .dashboard-container,
+[data-theme="light"] .dd-shell,
+[data-theme="light"] .rd-shell {
+  background-image: none !important;
+  background-color: var(--bg-page);
+}
+
+/* Purposeful sidebar section labels */
+.sidebar-group-label {
+  padding: 12px 12px 5px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.75px;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  user-select: none;
+}
+
+.sidebar-group-label:first-child {
+  padding-top: 4px;
+}
+
+.sidebar-group-divider {
+  height: 1px;
+  background: var(--border-subtle);
+  margin: 8px 10px;
+}
+
+/* Compact operational status block above sidebar footer */
+.sidebar-ops-card {
+  margin: auto 10px 10px;
+  padding: 11px 12px;
+  background: var(--bg-surface-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: 9px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sidebar-ops-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.sidebar-ops-title {
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.55px;
+  color: var(--text-muted);
+}
+
+.sidebar-ops-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+}
+
+.sidebar-ops-pill.is-live {
+  color: #16a34a;
+  background: rgba(22, 163, 74, 0.10);
+  border-color: rgba(22, 163, 74, 0.24);
+}
+
+.sidebar-ops-pill.is-alert {
+  color: #dc2626;
+  background: rgba(220, 38, 38, 0.10);
+  border-color: rgba(220, 38, 38, 0.25);
+}
+
+.sidebar-ops-pill.is-muted {
+  color: var(--text-muted);
+  background: var(--bg-hover);
+  border-color: var(--border);
+}
+
+.sidebar-ops-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.sidebar-ops-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.sidebar-ops-metric {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  padding: 6px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.sidebar-ops-metric-val {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+}
+
+.sidebar-ops-metric-lbl {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 960px) {
+  .sidebar-group-label,
+  .sidebar-group-divider,
+  .sidebar-ops-card {
+    display: none;
+  }
+}
+
 
 

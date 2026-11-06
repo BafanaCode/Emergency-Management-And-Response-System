@@ -51,11 +51,11 @@
 
   --rd-font: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --rd-nav-h: 58px;
-  --rd-sidebar-w: 240px;
+  --rd-sidebar-w: 220px;
   --rd-ease: cubic-bezier(0.16, 1, 0.3, 1);
   --rd-ease-io: cubic-bezier(0.4, 0, 0.2, 1);
   --rd-radius: 8px;
-  --rd-radius-lg: 12px;
+  --rd-radius-lg: 10px;
 }
 
 /* ── Global reset ── */
@@ -334,25 +334,25 @@
 
 .rd-sidebar-nav {
   flex: 1;
-  padding: 12px 0;
+  padding: 10px 0 6px;
 }
 
 .rd-sidebar-btn {
   width: 100%;
   display: flex;
   align-items: center;
-  gap: 11px;
-  padding: 11px 18px;
+  gap: 10px;
+  padding: 9.5px 16px;
   background: transparent;
   border: none;
   border-left: 3px solid transparent;
   color: var(--text-muted);
-  font-size: 13.5px;
+  font-size: 13px;
   font-weight: 500;
   font-family: var(--rd-font);
   text-align: left;
   cursor: pointer;
-  transition: all 0.18s var(--rd-ease-io);
+  transition: all 0.16s var(--rd-ease-io);
 }
 
 .rd-sidebar-btn:hover {
@@ -417,7 +417,7 @@
 /* ── Content ── */
 .rd-content {
   flex: 1;
-  padding: 24px;
+  padding: 20px 24px 28px;
   overflow-y: auto;
   min-width: 0;
 }
@@ -426,19 +426,19 @@
    PAGE HEADER
    ════════════════════════════════════════════════════════ */
 .rd-page-header {
-  margin-bottom: 22px;
+  margin-bottom: 18px;
 }
 
 .rd-page-title {
-  font-size: 22px;
+  font-size: 20px;
   font-weight: 700;
   color: var(--text-primary);
-  letter-spacing: -0.4px;
-  margin: 0 0 4px;
+  letter-spacing: -0.35px;
+  margin: 0 0 3px;
 }
 
 .rd-page-subtitle {
-  font-size: 13px;
+  font-size: 12.5px;
   color: var(--text-muted);
   margin: 0;
 }
@@ -545,14 +545,14 @@
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 14px;
-  margin-bottom: 20px;
+  margin-bottom: 18px;
 }
 
 .rd-stat-card {
   background: var(--bg-surface);
   border: 1px solid var(--border);
   border-radius: var(--rd-radius);
-  padding: 18px 18px 14px;
+  padding: 15px 16px 14px;
   position: relative;
   overflow: hidden;
   box-shadow: var(--shadow-surface);
@@ -569,7 +569,8 @@
   bottom: 0;
   left: 0;
   right: 0;
-  height: 3px;
+  height: 2px;
+  opacity: 0.8;
 }
 
 .rd-stat-card.blue::after {
@@ -591,7 +592,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  margin-bottom: 12px;
+  margin-bottom: 10px;
 }
 
 .rd-stat-icon-wrap.blue {
@@ -612,18 +613,19 @@
 }
 
 .rd-stat-num {
-  font-size: 30px;
+  font-size: 26px;
   font-weight: 700;
   color: var(--text-primary);
   line-height: 1;
-  margin-bottom: 5px;
+  margin-bottom: 4px;
   letter-spacing: -0.5px;
+  font-variant-numeric: tabular-nums;
 }
 
 .rd-stat-lbl {
-  font-size: 12px;
+  font-size: 11.5px;
   color: var(--text-muted);
-  font-weight: 500;
+  font-weight: 600;
 }
 
 /* ════════════════════════════════════════════════════════
@@ -631,8 +633,15 @@
    ════════════════════════════════════════════════════════ */
 .rd-dashboard-grid {
   display: grid;
-  grid-template-columns: 1fr 380px;
-  gap: 18px;
+  grid-template-columns: minmax(0, 1.55fr) minmax(320px, 1fr);
+  gap: 16px;
+  align-items: stretch;
+}
+
+.rd-dashboard-grid > .rd-card {
+  margin-bottom: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 /* ════════════════════════════════════════════════════════
@@ -642,8 +651,8 @@
   background: var(--bg-surface);
   border: 1px solid var(--border);
   border-radius: var(--rd-radius-lg);
-  padding: 20px 22px;
-  margin-bottom: 18px;
+  padding: 18px 20px;
+  margin-bottom: 16px;
   box-shadow: var(--shadow-surface);
 }
 
@@ -711,12 +720,120 @@
   gap: 6px;
 }
 
-/* ── Detail grid ── */
+/* ── Detail grid & 2-Column Active Job Workspace ── */
+.rd-active-job-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.55fr) minmax(280px, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+
+.rd-active-job-side {
+  background: var(--bg-surface-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--rd-radius);
+  padding: 16px 18px;
+}
+
+/* ── 2-Column Profile Layout ── */
+.rd-profile-layout {
+  display: grid;
+  grid-template-columns: minmax(260px, 340px) minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.rd-profile-summary-card,
+.rd-profile-details-card {
+  margin-bottom: 0;
+}
+
+.rd-profile-identity-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.rd-profile-avatar {
+  width: 48px;
+  height: 48px;
+  border-radius: 10px;
+  background: rgba(37, 99, 235, 0.14);
+  border: 1px solid rgba(37, 99, 235, 0.30);
+  color: var(--rd-blue-400);
+  font-size: 16px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.rd-profile-name {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+}
+
+.rd-profile-role-pill {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--bg-surface-2);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+}
+
+.rd-profile-stats-mini {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--divider-color);
+}
+
+.rd-profile-stat-box {
+  background: var(--bg-surface-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.rd-profile-stat-val {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.rd-profile-stat-lbl {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+@media (max-width: 980px) {
+  .rd-active-job-grid,
+  .rd-profile-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
 .rd-detail-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 18px 28px;
-  margin-bottom: 24px;
+  gap: 16px 24px;
+  margin-bottom: 20px;
 }
 
 .rd-detail-item {

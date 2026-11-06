@@ -272,9 +272,12 @@ service cloud.firestore {
           || (isReporter() && reportedNotice(notificationId))
         );
 
-      // Recipients may only mark their own notifications as read.
+      // Recipients may mark their own notifications as read; dispatchers may also mark shared-channel notifications as read.
       allow update: if isAuth()
-        && resource.data.userId == request.auth.uid
+        && (
+          resource.data.userId == request.auth.uid
+          || (resource.data.userId == 'dispatchers' && isDispatcher())
+        )
         && changedKeys().hasOnly(['isRead'])
         && request.resource.data.isRead == true;
 
@@ -366,11 +369,11 @@ service cloud.firestore {
 
     // ─────────────────── notificationReads (dispatcher read receipts) ───────────────────
     // A dispatcher's own record that they have read a shared-channel notification.
-    // Create-only; the ID is bound to the user so receipts cannot be forged for others.
+    // The ID is bound to the user so receipts cannot be forged for others.
     match /notificationReads/{readId} {
-      allow read: if isAuth() && resource.data.userId == request.auth.uid;
+      allow read: if isAuth() && (resource == null || resource.data.userId == request.auth.uid);
 
-      allow create: if isDispatcher()
+      allow create, update: if isDispatcher()
         && request.resource.data.keys().hasOnly(['userId', 'notificationId', 'readAt'])
         && request.resource.data.keys().hasAll(['userId', 'notificationId', 'readAt'])
         && request.resource.data.userId == request.auth.uid
@@ -379,7 +382,7 @@ service cloud.firestore {
         && request.resource.data.readAt == request.time
         && get(/databases/$(database)/documents/notifications/$(request.resource.data.notificationId)).data.userId == 'dispatchers';
 
-      allow update, delete: if false;
+      allow delete: if false;
     }
 
     // Deny everything else

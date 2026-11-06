@@ -27,3 +27,101 @@
 .geo-hint, .geo-status { font-size: 12.5px; color: var(--text-muted, #94a3b8); flex: 1 1 220px; min-width: 0; }
 .geo-status.ok { color: #16a34a; font-weight: 600; flex: 0 1 auto; }
 .geo-status.warn { color: #d97706; }
+
+/* ── 2-Column Report Emergency Workspace ──────────────────── */
+.report-workspace-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.65fr) minmax(280px, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.report-main-card,
+.report-side-card {
+  margin-bottom: 0;
+}
+
+.report-side-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 12px;
+}
+
+.report-readiness-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.report-readiness-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--bg-surface-2);
+  border: 1px solid var(--border-subtle);
+}
+
+.report-readiness-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-top: 5px;
+  background: var(--text-dim);
+  flex-shrink: 0;
+}
+
+.report-readiness-item.is-ready {
+  border-color: rgba(22, 163, 74, 0.28);
+  background: rgba(22, 163, 74, 0.05);
+}
+
+.report-readiness-item.is-ready .report-readiness-dot {
+  background: #16a34a;
+  box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.16);
+}
+
+.report-readiness-label {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 2px;
+}
+
+.report-readiness-sub {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.report-side-divider {
+  height: 1px;
+  background: var(--divider-color);
+  margin: 16px 0;
+}
+
+.report-severity-guide {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.report-guide-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+@media (max-width: 980px) {
+  .report-workspace-grid {
+    grid-template-columns: 1fr;
+  }
+}
+

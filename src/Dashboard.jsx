@@ -18,6 +18,8 @@ import NotificationCenter from './components/notifications/NotificationCenter';
 import useNotifications from './hooks/useNotifications';
 import { queueReportedNotification } from './utils/notifications';
 import ReportEmergencyTab from './components/reporter/ReportEmergencyTab';
+import ActiveIncidentBanner from './components/common/ActiveIncidentBanner';
+import HeaderUserIdentity from './components/common/HeaderUserIdentity';
 import { friendlyFirestoreError } from './utils/incidentLifecycle';
 import { requestCurrentPosition } from './utils/geo';
 import './Dashboard.css';
@@ -144,7 +146,7 @@ const Dashboard = ({ onLogout, user, userData, theme, onThemeChange }) => {
         if (user?.uid) {
           sessionStorage.setItem(`alert24_stats_reporter_${user.uid}`, JSON.stringify(newStats));
         }
-      } catch {}
+      } catch { }
 
       // Derive active incident (first non-resolved, already sorted newest-first)
       const active = data.find(i => i.status !== 'Resolved') || null;
@@ -292,9 +294,9 @@ const Dashboard = ({ onLogout, user, userData, theme, onThemeChange }) => {
       setReportFormSuccess('');
       setReportFormError(
         'Your report was NOT submitted. ' +
-          (err instanceof ImageProcessingError
-            ? err.message
-            : friendlyFirestoreError(err, 'Please check your connection and try again.'))
+        (err instanceof ImageProcessingError
+          ? err.message
+          : friendlyFirestoreError(err, 'Please check your connection and try again.'))
       );
     } finally {
       setReportSubmitting(false);
@@ -442,8 +444,8 @@ const Dashboard = ({ onLogout, user, userData, theme, onThemeChange }) => {
 
   const IconSettings = () => (
     <svg className="link-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="12" r="3"/>
-      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
     </svg>
   );
 
@@ -467,11 +469,15 @@ const Dashboard = ({ onLogout, user, userData, theme, onThemeChange }) => {
         </div>
 
         <div className="nav-right">
-          <div className="user-info">
-            <span className="user-name">{userData?.name || 'User'}</span>
-            <span className="user-email">{user?.email}</span>
-          </div>
-          <button className="logout-btn" onClick={onLogout}>Sign out</button>
+          <HeaderUserIdentity
+            name={userData?.name}
+            email={user?.email}
+            roleLabel="Reporter"
+            onProfileClick={() => setActiveTab('profile')}
+            onLogout={onLogout}
+            logoutLabel="Sign out"
+            logoutClassName="logout-btn"
+          />
         </div>
       </nav>
 
@@ -480,6 +486,7 @@ const Dashboard = ({ onLogout, user, userData, theme, onThemeChange }) => {
         {/* ── SIDEBAR — structure matches dd/rd sidebar exactly ──── */}
         <aside className="sidebar">
           <nav className="sidebar-nav">
+            <div className="sidebar-group-label">Operations</div>
             <button
               className={`sidebar-link ${activeTab === 'dashboard' ? 'active' : ''}`}
               onClick={() => setActiveTab('dashboard')}
@@ -512,6 +519,10 @@ const Dashboard = ({ onLogout, user, userData, theme, onThemeChange }) => {
               <span className="link-icon"><IconMap /></span>
               <span><span className="label-full">Incident Map</span><span className="label-short">Map</span></span>
             </button>
+
+            <div className="sidebar-group-divider" aria-hidden="true" />
+            <div className="sidebar-group-label">Account</div>
+
             <button
               className={`sidebar-link ${activeTab === 'notifications' ? 'active' : ''}`}
               onClick={() => setActiveTab('notifications')}
@@ -540,6 +551,27 @@ const Dashboard = ({ onLogout, user, userData, theme, onThemeChange }) => {
               <span><span className="label-full">Settings</span><span className="label-short">Settings</span></span>
             </button>
           </nav>
+
+          <div className="sidebar-ops-card" aria-label="Account operational status">
+            <div className="sidebar-ops-header">
+              <span className="sidebar-ops-title">Dispatch Link</span>
+              <span className={`sidebar-ops-pill ${activeIncident ? 'is-alert' : 'is-live'}`}>
+                <span className="sidebar-ops-dot" />
+                {activeIncident ? 'Active Case' : 'Standby'}
+              </span>
+            </div>
+            <div className="sidebar-ops-metrics">
+              <div className="sidebar-ops-metric">
+                <span className="sidebar-ops-metric-val">{effectiveStats.total}</span>
+                <span className="sidebar-ops-metric-lbl">Total Reports</span>
+              </div>
+              <div className="sidebar-ops-metric">
+                <span className="sidebar-ops-metric-val">{effectiveStats.pending + effectiveStats.inProgress}</span>
+                <span className="sidebar-ops-metric-lbl">Open Cases</span>
+              </div>
+            </div>
+          </div>
+
           <div className="sidebar-footer">
             Alert24 Citizen Portal
           </div>
@@ -561,47 +593,17 @@ const Dashboard = ({ onLogout, user, userData, theme, onThemeChange }) => {
                 </p>
               </div>
 
-              {/* Status Banner */}
-              <div className={`status-banner ${activeIncident ? 'status-active' : 'status-idle'}`}>
-                <div className="banner-left">
-                  {activeIncident ? (
-                    <>
-                      <div className="pulsing-dot" aria-hidden="true"></div>
-                      <div className="banner-info-group">
-                        <div className="banner-badge-row">
-                          <span className="banner-active-pill">Active Incident</span>
-                          <span className={`status-badge status-${activeIncident.status.toLowerCase().replace(/\s+/g, '-')}`}>
-                            {activeIncident.status}
-                          </span>
-                        </div>
-                        <div className="banner-incident-name">{activeIncident.type}</div>
-                        {activeIncident.address && (
-                          <div className="banner-incident-loc" title={activeIncident.address}>
-                            {activeIncident.address}
-                          </div>
-                        )}
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      <div className="static-dot" aria-hidden="true"></div>
-                      <div className="banner-info-group">
-                        <div className="banner-idle-title">All Systems Normal</div>
-                        <div className="banner-idle-desc">No active emergency incidents currently reported by your account.</div>
-                      </div>
-                    </>
-                  )}
-                </div>
-                {activeIncident ? (
-                  <button className="banner-btn" onClick={() => handleViewIncident(activeIncident)}>
-                    View Incident
-                  </button>
-                ) : (
-                  <button className="banner-btn" onClick={() => setActiveTab('report')}>
-                    Report Emergency
-                  </button>
-                )}
-              </div>
+              {/* Standardized Active Incident Status Banner */}
+              <ActiveIncidentBanner
+                incident={activeIncident}
+                eyebrowLabel="Active Incident"
+                actionLabel="View Incident"
+                onAction={() => handleViewIncident(activeIncident)}
+                idleTitle="All Systems Normal"
+                idleDescription="No active emergency incidents currently reported by your account."
+                idleActionLabel="Report Emergency"
+                onIdleAction={() => setActiveTab('report')}
+              />
 
               {/* Stats Cards */}
               <div className="stats-row">
@@ -1120,89 +1122,112 @@ const Dashboard = ({ onLogout, user, userData, theme, onThemeChange }) => {
               PROFILE TAB
               ═══════════════════════════════════════════════ */}
           {activeTab === 'profile' && (
-            <div className="form-card full-width">
+            <>
+              <div className="page-header">
+                <h1 className="page-title">My Profile</h1>
+                <p className="page-subtitle">Manage your citizen reporter identity and emergency contact information.</p>
+              </div>
+
               {profileError && <div className="error-banner">{profileError}</div>}
               {profileSuccess && <div className="success-banner">{profileSuccess}</div>}
 
-              {/* Avatar header */}
-              <div className="profile-header">
-                <div className="profile-avatar" aria-hidden="true">{initials}</div>
-                <div className="profile-header-info">
-                  <div className="profile-display-name">{userData?.name || 'User'}</div>
-                  <div className="profile-role-badge">Reporter</div>
-                </div>
-              </div>
-
-              {/* Profile fields */}
-              <div className="profile-content">
-                {!editingProfile ? (
-                  <>
-                    <div className="profile-field">
-                      <span className="field-label">Full Name</span>
-                      <span className="field-value">{userData?.name || 'Not provided'}</span>
-                    </div>
-                    <div className="profile-field">
-                      <span className="field-label">Email</span>
-                      <span className="field-value">{user?.email}</span>
-                    </div>
-                    <div className="profile-field">
-                      <span className="field-label">Phone</span>
-                      <span className="field-value">{userData?.phone || 'Not provided'}</span>
-                    </div>
-                    <div className="profile-field">
-                      <span className="field-label">Role</span>
-                      <span className="field-value">Reporter</span>
-                    </div>
-                    <div className="profile-field">
-                      <span className="field-label">Member Since</span>
-                      <span className="field-value">{formatDate(userData?.createdAt)}</span>
-                    </div>
-                    <div className="profile-actions">
-                      <button className="edit-btn" onClick={() => {
-                        setEditName(userData?.name || '');
-                        setEditPhone(userData?.phone || '');
-                        setEditingProfile(true);
-                      }}>
-                        Edit Profile
-                      </button>
-                    </div>
-                  </>
-                ) : (
-                  <div className="profile-edit-form">
-                    <div className="profile-edit-row">
-                      <span className="field-label">Full Name</span>
-                      <input
-                        type="text"
-                        className="form-input"
-                        value={editName}
-                        onChange={(e) => setEditName(e.target.value)}
-                        placeholder="Your full name"
-                        aria-label="Full name"
-                      />
-                    </div>
-                    <div className="profile-edit-row">
-                      <span className="field-label">Phone</span>
-                      <input
-                        type="tel"
-                        className="form-input"
-                        value={editPhone}
-                        onChange={(e) => setEditPhone(e.target.value)}
-                        placeholder="Your phone number"
-                        aria-label="Phone number"
-                      />
-                    </div>
-                    <div className="profile-actions">
-                      <button className="submit-btn" style={{ width: 'auto', padding: '9px 20px' }} onClick={handleSaveProfile}>
-                        Save Changes
-                      </button>
-                      <button className="cancel-btn" onClick={() => setEditingProfile(false)}>
-                        Cancel
-                      </button>
+              <div className="profile-layout-grid">
+                {/* Left Column: Identity & Reporting Summary */}
+                <div className="form-card profile-summary-card">
+                  <div className="profile-header">
+                    <div className="profile-avatar" aria-hidden="true">{initials}</div>
+                    <div className="profile-header-info">
+                      <div className="profile-display-name">{userData?.name || 'User'}</div>
+                      <div className="profile-role-badge">Reporter</div>
                     </div>
                   </div>
-                )}
+
+                  <div className="profile-stats-mini">
+                    <div className="profile-stat-box">
+                      <span className="profile-stat-val">{effectiveStats.total}</span>
+                      <span className="profile-stat-lbl">Total Reports</span>
+                    </div>
+                    <div className="profile-stat-box">
+                      <span className="profile-stat-val">{effectiveStats.resolved}</span>
+                      <span className="profile-stat-lbl">Resolved</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Right Column: Account Details & Edit Form */}
+                <div className="form-card profile-details-card">
+                  <div className="card-title">Account Information</div>
+                  <div className="profile-content">
+                    {!editingProfile ? (
+                      <>
+                        <div className="profile-field">
+                          <span className="field-label">Full Name</span>
+                          <span className="field-value">{userData?.name || 'Not provided'}</span>
+                        </div>
+                        <div className="profile-field">
+                          <span className="field-label">Email</span>
+                          <span className="field-value">{user?.email}</span>
+                        </div>
+                        <div className="profile-field">
+                          <span className="field-label">Phone</span>
+                          <span className="field-value">{userData?.phone || 'Not provided'}</span>
+                        </div>
+                        <div className="profile-field">
+                          <span className="field-label">Role</span>
+                          <span className="field-value">Reporter</span>
+                        </div>
+                        <div className="profile-field">
+                          <span className="field-label">Member Since</span>
+                          <span className="field-value">{formatDate(userData?.createdAt)}</span>
+                        </div>
+                        <div className="profile-actions">
+                          <button className="edit-btn" onClick={() => {
+                            setEditName(userData?.name || '');
+                            setEditPhone(userData?.phone || '');
+                            setEditingProfile(true);
+                          }}>
+                            Edit Profile
+                          </button>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="profile-edit-form">
+                        <div className="profile-edit-row">
+                          <span className="field-label">Full Name</span>
+                          <input
+                            type="text"
+                            className="form-input"
+                            value={editName}
+                            onChange={(e) => setEditName(e.target.value)}
+                            placeholder="Your full name"
+                            aria-label="Full name"
+                          />
+                        </div>
+                        <div className="profile-edit-row">
+                          <span className="field-label">Phone</span>
+                          <input
+                            type="tel"
+                            className="form-input"
+                            value={editPhone}
+                            onChange={(e) => setEditPhone(e.target.value)}
+                            placeholder="Your phone number"
+                            aria-label="Phone number"
+                          />
+                        </div>
+                        <div className="profile-actions">
+                          <button className="submit-btn" style={{ width: 'auto', padding: '9px 20px' }} onClick={handleSaveProfile}>
+                            Save Changes
+                          </button>
+                          <button className="cancel-btn" onClick={() => setEditingProfile(false)}>
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
-            </div>
+            </>
           )}
 
           {/* ═══════════════════════════════════════════════

@@ -1,479 +1,443 @@
-# 🚨 Alert24 — Emergency Management and Response System
+# Alert24 — Emergency Management and Response System
 
-![React](https://img.shields.io/badge/React-19-61DAFB?style=for-the-badge&logo=react&logoColor=black)
-![Firebase](https://img.shields.io/badge/Firebase-12-FFCA28?style=for-the-badge&logo=firebase&logoColor=black)
-![Recharts](https://img.shields.io/badge/Recharts-3-22B5BF?style=for-the-badge&logo=react&logoColor=white)
-![jsPDF](https://img.shields.io/badge/jsPDF-Reports-red?style=for-the-badge&logo=adobeacrobatreader&logoColor=white)
-![JavaScript](https://img.shields.io/badge/JavaScript-ES6+-F7DF1E?style=for-the-badge&logo=javascript&logoColor=black)
-![CSS3](https://img.shields.io/badge/CSS3-1572B6?style=for-the-badge&logo=css3&logoColor=white)
-![Tests](https://img.shields.io/badge/Tests-74%20Passing-brightgreen?style=for-the-badge)
+![React](https://img.shields.io/badge/React-19.2.5-61DAFB?style=flat-square&logo=react&logoColor=black)
+![Firebase](https://img.shields.io/badge/Firebase-12.12.0-FFCA28?style=flat-square&logo=firebase&logoColor=black)
+![Leaflet](https://img.shields.io/badge/Leaflet-1.9.4-199900?style=flat-square&logo=leaflet&logoColor=white)
+![Recharts](https://img.shields.io/badge/Recharts-3.8.1-22B5BF?style=flat-square)
+![jsPDF](https://img.shields.io/badge/jsPDF-4.2.1-EC1C24?style=flat-square)
 
-Alert24 is a real-time web-based emergency management and dispatch coordination system built with React 19 and Google Firebase. It connects civilian incident reporters, central emergency dispatchers, and field responders in an end-to-end incident lifecycle workflow.
+**Alert24** is a real-time web-based emergency management and dispatch coordination application built with **React 19** and **Google Firebase**. It connects civilian incident reporters, emergency control-room dispatchers, and field responders through a structured, five-stage incident lifecycle (`Reported → Assigned → En Route → On Scene → Resolved`).
 
 ---
 
-## 📋 Table of Contents
+## Table of Contents
 
-- [System Architecture & Roles](#-system-architecture--roles)
-- [Incident Lifecycle & State Machine](#-incident-lifecycle--state-machine)
-- [Key Features](#-key-features)
-- [Security & Data Integrity Model](#-security--data-integrity-model)
-- [Tech Stack](#-tech-stack)
-- [Project Structure](#-project-structure)
-- [Setup & Reproducibility Guide](#-setup--reproducibility-guide)
-  - [Prerequisites](#prerequisites)
-  - [Step 1: Clone & Install Dependencies](#step-1-clone--install-dependencies)
-  - [Step 2: Environment Configuration](#step-2-environment-configuration)
-  - [Step 3: Firebase Project Configuration](#step-3-firebase-project-configuration)
-  - [Step 4: Provisioning Privileged Staff Accounts](#step-4-provisioning-privileged-staff-accounts)
-  - [Step 5: Running Locally](#step-5-running-locally)
-- [Testing & Verification](#-testing--verification)
-  - [Unit & Component Tests (39 Tests)](#1-unit--component-tests-39-tests)
-  - [Firestore Emulator Security Rules Tests (35 Tests)](#2-firestore-emulator-security-rules-tests-35-tests)
-  - [Production Build Verification](#3-production-build-verification)
-- [Deployment](#-deployment)
-- [Rubric Compliance Matrix (Deliverable 2)](#-rubric-compliance-matrix-deliverable-2)
-- [Author & Acknowledgements](#-author--acknowledgements)
+1. [Overview](#1-overview)
+2. [Key Features](#2-key-features)
+3. [User Roles](#3-user-roles)
+4. [Incident Management Workflow](#4-incident-management-workflow)
+5. [Technology Stack](#5-technology-stack)
+6. [System Architecture](#6-system-architecture)
+7. [Project Structure](#7-project-structure)
+8. [Installation and Setup](#8-installation-and-setup)
+9. [Running the Application](#9-running-the-application)
+10. [Firebase Configuration and Data Model](#10-firebase-configuration-and-data-model)
+11. [Testing and Verification](#11-testing-and-verification)
+12. [Security and Access Control](#12-security-and-access-control)
+13. [Limitations and Future Improvements](#13-limitations-and-future-improvements)
+14. [Project Information and Acknowledgements](#14-project-information-and-acknowledgements)
 
 ---
 
-## 🏛️ System Architecture & Roles
+## 1. Overview
 
-Alert24 provides three specialized, role-tailored interfaces driven by real-time Firestore synchronization and granular security rules:
+During public emergencies—such as road accidents, fires, medical emergencies, and floods—traditional telephone-based reporting often suffers from incomplete location context, lack of visual evidence, and zero status visibility for the person who reported the incident. Simultaneously, dispatchers and field responders need a shared operational view to assign available personnel without double-booking units, log field progress, and measure response durations.
 
-```
-                  ┌────────────────────────────────────────┐
-                  │          Alert24 System Shell          │
-                  │        (Auth & Session Routing)        │
-                  └───────────────────┬────────────────────┘
-                                      │
-          ┌───────────────────────────┼───────────────────────────┐
-          │                           │                           │
-          ▼                           ▼                           ▼
-┌──────────────────┐        ┌──────────────────┐        ┌──────────────────┐
-│     REPORTER     │        │    DISPATCHER    │        │    RESPONDER     │
-│   (Citizen UI)   │        │  (Control Room)  │        │   (Field Ops)    │
-├──────────────────┤        ├──────────────────┤        ├──────────────────┤
-│• Intake form     │        │• Live monitoring │        │• Active mission  │
-│• Photo capture   │        │• Unit assignment │        │• Lifecycle steps │
-│• Status timeline │        │• Analytics/KPIs  │        │• Operational log │
-│• My reports list │        │• PDF/CSV export  │        │• Unit toggle     │
-└──────────────────┘        └──────────────────┘        └──────────────────┘
-```
-
-1. **Reporter (Citizen / Public User):**
-   - Self-registers for a civilian account (role `reporter`).
-   - Submits structured emergency reports specifying category, severity, address, detailed narrative, and optional incident photo.
-   - Receives instant, truthful submission feedback (atomic incident creation with initial audit log).
-   - Tracks incident progress live via dedicated status timeline and interactive notifications.
-   - Data isolation: can query and inspect only their own submitted incidents.
-
-2. **Dispatcher (Central Control Room Operator):**
-   - Monitors all incoming incidents in real time.
-   - Evaluates active incidents and assigns available field units using guided verification modal.
-   - Tracks live responder availability and prevents double-assignment of busy units.
-   - Real-time KPIs: active emergencies, unit availability, 24-hour resolution tally, and category distribution charts (Recharts).
-   - Generates and downloads structured incident reports in PDF (jsPDF) and CSV formats.
-
-3. **Responder (Field Operations Unit):**
-   - Mobile-first dashboard for field personnel (paramedics, fire units, police).
-   - Dedicated Active Incident card displaying coordinates, address, reporter contact, and urgency.
-   - Forward-only state transition controls: `En Route` → `On Scene` → `Resolved`.
-   - Appends optional field resolution notes to the permanent audit trail.
-   - Availability automatically returns to "Available" upon atomic incident resolution.
+Alert24 addresses these challenges by providing:
+- A structured **Reporter** interface for submitting emergencies with optional browser GPS coordinates and compressed photo evidence, alongside live status tracking.
+- A real-time **Dispatcher** control room for monitoring incoming emergencies on a live queue and interactive map, assigning available responders atomically, analysing response trends, and exporting single-incident or bulk summary reports in PDF and CSV formats.
+- A focused **Responder** workspace for managing unit availability, progressing assigned incidents through forward-only status stages, recording chronological field notes, and resolving incidents with mandatory closure notes.
 
 ---
 
-## 🔄 Incident Lifecycle & State Machine
+## 2. Key Features
 
-Alert24 enforces a strict, unidirectional state machine at both the client application level (`src/utils/incidentLifecycle.js`) and the database security level (`firestore.rules`):
+- **Role-Based Dashboards:** Dedicated interfaces for **Reporter**, **Dispatcher**, and **Responder** roles, mounted conditionally in `src/App.js` after Firebase Authentication and Firestore role verification.
+- **Strict 5-Stage Incident State Machine:** Enforces forward-only progression (`Reported → Assigned → En Route → On Scene → Resolved`) in both client-side helpers (`src/utils/incidentLifecycle.js`) and server-side security rules (`firestore.rules`).
+- **Atomic Multi-Document Operations (`writeBatch`):** Incident creation, responder assignment, status progression, and incident resolution update `incidents`, `statusLogs`, `notifications`, and responder availability (`users`) atomically.
+- **Real-Time Synchronisation (`onSnapshot`):** Live cross-dashboard updates for incidents, responder availability, chronological audit logs, and notifications without page refreshes.
+- **In-App Notification System:** Real-time, in-app notifications (`src/hooks/useNotifications.js`, `src/components/notifications/NotificationCenter.jsx`) supporting direct user alerts and a shared `'dispatchers'` broadcast channel with per-dispatcher read tracking via `notificationReads` and `localStorage` fallback. *(Note: Notifications are strictly in-app; SMS and email notifications are not implemented.)*
+- **Interactive Leaflet & OpenStreetMap Mapping:** Lazy-loaded map (`src/components/map/IncidentMap.jsx`) displaying incidents that have captured numeric GPS coordinates (`latitude` and `longitude`). Custom markers encode both **severity** (outer pin colour) and **lifecycle status** (inner dot colour), with automatic viewport bounds fitting and offline/tile-error fallback notices.
+- **Client-Side Image Validation, Compression & Fallback:** Validates JPEG, PNG, and WebP images up to 10 MB (`src/utils/imageUtils.js`), resizes and compresses photos on an HTML5 `<canvas>` (`1280×1280` max dimensions, JPEG quality `0.82`), uploads to Firebase Storage, and automatically falls back to a bounded inline base64 data URL (`<= 450,000` characters) if Storage upload fails or times out.
+- **Search and Multi-Criteria Filtering:** Real-time filtering across Reporter, Dispatcher, and Responder views by keyword (type, address, reporter name, incident ID), lifecycle status, severity level, and date range.
+- **Operational Analytics & Response-Time Metrics:** Live Recharts visualisations (`BarChart`, `PieChart`, `LineChart`) for 7-day incident volume, incident categories, severity distribution, and response-time trends (`src/utils/responseTime.js`).
+- **Client-Side PDF & CSV Report Generation:** Generates formatted single-incident dossier PDFs (including metadata, response-time intervals, chronological audit log tables, and embedded incident photos) and filtered bulk summary PDFs/CSVs (`src/utils/pdfExport.js`).
+- **Theme Persistence:** Supports Dark and Light interface themes (`src/theme.css`) persisted in `localStorage`.
+
+---
+
+## 3. User Roles
+
+| Role | Account Creation | Dashboard Component & Views | Core Capabilities & Permissions |
+| :--- | :--- | :--- | :--- |
+| **Reporter** (`reporter`) | Self-registration via the application sign-up form | `src/Dashboard.jsx`<br>• Dashboard<br>• Report Emergency<br>• My Reports<br>• Incident Map<br>• Notifications<br>• My Profile & Settings | • Submit emergency reports with type, severity, address, description, optional browser GPS coordinates, and optional photo.<br>• View, search, and filter only their own submitted incidents.<br>• Inspect live status timelines and export single-incident PDF reports for their own incidents.<br>• Receive in-app notifications as their incident progresses. |
+| **Dispatcher** (`dispatcher`) | Provisioned via Admin SDK CLI script (`scripts/create-staff-account.js`) | `src/DispatcherDashboard.jsx`<br>• Overview (KPIs & Analytics)<br>• Live Incidents<br>• Incident Map<br>• Manage Responders<br>• Reports (PDF & CSV Export)<br>• Notifications & Settings | • Monitor all incidents and all registered responders in real time.<br>• Assign an available responder (`isAvailable == true`, no `activeIncidentId`) to a `Reported` incident.<br>• Toggle responder availability when the responder does not have an active assignment.<br>• View Recharts analytics and export single-incident or bulk filtered PDF/CSV reports. |
+| **Responder** (`responder`) | Provisioned via Admin SDK CLI script (`scripts/create-staff-account.js`) | `src/ResponderDashboard.jsx`<br>• My Dashboard<br>• Active Job<br>• Incident Map<br>• Job History<br>• My Profile<br>• Notifications & Settings | • Toggle personal availability (`Available` / `Unavailable`) when not assigned to an active incident.<br>• Advance assigned incidents step-by-step: `Assigned → En Route → On Scene → Resolved`.<br>• Add operational field notes to the incident timeline.<br>• Resolve incidents via `ResolveIncidentModal.jsx` (automatically releasing the responder back to `Available`). |
+
+---
+
+## 4. Incident Management Workflow
+
+Every incident follows a strict, forward-only lifecycle enforced by `src/utils/incidentLifecycle.js` and `firestore.rules`:
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Reported: Reporter submits (with initial status log)
-    Reported --> Assigned: Dispatcher assigns available unit
-    Assigned --> EnRoute: Responder acknowledges & departs
-    EnRoute --> OnScene: Responder arrives on scene
-    OnScene --> Resolved: Responder resolves (records resolvedAt & releases unit)
+    [*] --> Reported: Reporter submits emergency
+    Reported --> Assigned: Dispatcher assigns available responder
+    Assigned --> EnRoute: Assigned Responder marks En Route
+    EnRoute --> OnScene: Assigned Responder marks On Scene
+    OnScene --> Resolved: Assigned Responder resolves with notes
     Resolved --> [*]
 ```
 
-### Transition Authority & Atomic Operations
-
-| Transition | Permitted Actor | Batch Operations Executed | Security Constraints Enforced |
-|---|---|---|---|
-| `[*] → Reported` | Authenticated Reporter | Creates `incidents/{id}` + creates `statusLogs/{id}_reported` | `reporterId == auth.uid`, unassigned, initial status `Reported` |
-| `Reported → Assigned` | Authenticated Dispatcher | Updates `incidents/{id}` + updates `users/{responderId}` + creates notification + creates `statusLog` | Target responder must have `role == 'responder'`, `isAvailable == true`, `activeIncidentId == ''` |
-| `Assigned → En Route` | Assigned Responder | Updates `incidents/{id}` + creates `statusLog` | `auth.uid == incident.responderId`, forward step only |
-| `En Route → On Scene` | Assigned Responder | Updates `incidents/{id}` + creates `statusLog` | `auth.uid == incident.responderId`, forward step only |
-| `On Scene → Resolved` | Assigned Responder | Updates `incidents/{id}` (`resolvedAt`) + updates `users/{auth.uid}` (`isAvailable: true`, `activeIncidentId: ''`) + creates `statusLog` | Atomic responder release, mandatory `resolvedAt` timestamp |
+| Stage | Triggered By | Firestore Batch Operations Executed |
+| :--- | :--- | :--- |
+| **1. `Reported`** | **Reporter** (`Dashboard.jsx`) | • Creates `incidents/{incidentId}` with `status: 'Reported'`, `reporterId`, `type`, `severity`, `address`, `description`, optional `photoUrl`, and optional `latitude`/`longitude`.<br>• Creates initial audit log `statusLogs/{incidentId}_reported`.<br>• Queues broadcast notification `notifications/{incidentId}_reported_dispatchers` (`userId: 'dispatchers'`). |
+| **2. `Assigned`** | **Dispatcher** (`DispatcherDashboard.jsx`) | • Verifies incident is `Reported` and selected responder is `isAvailable == true` with `activeIncidentId == ''`.<br>• Updates `incidents/{incidentId}` (`status: 'Assigned'`, `responderId`, `responderName`).<br>• Updates `users/{responderId}` (`isAvailable: false`, `activeIncidentId: incidentId`).<br>• Creates a `statusLogs` entry and queues `notifications` for both the assigned responder and the reporter. |
+| **3. `En Route`** | **Responder** (`ResponderDashboard.jsx`) | • Updates `incidents/{incidentId}` (`status: 'En Route'`, `updatedAt`).<br>• Appends a `statusLogs` entry.<br>• Queues deterministic progress notifications for the reporter and `'dispatchers'`. |
+| **4. `On Scene`** | **Responder** (`ResponderDashboard.jsx`) | • Updates `incidents/{incidentId}` (`status: 'On Scene'`, `updatedAt`).<br>• Appends a `statusLogs` entry.<br>• Queues deterministic progress notifications for the reporter and `'dispatchers'`. |
+| **5. `Resolved`** | **Responder** (`ResponderDashboard.jsx`) | • Updates `incidents/{incidentId}` (`status: 'Resolved'`, `resolvedAt`, `updatedAt`).<br>• Updates `users/{responderId}` (`isAvailable: true`, `activeIncidentId: ''`).<br>• Appends a `statusLogs` entry containing the resolution notes.<br>• Queues deterministic resolution notifications for the reporter and `'dispatchers'`. |
 
 ---
 
-## ✨ Key Features
+## 5. Technology Stack
 
-- **Strict Incident State Machine:** Impossible to skip steps or transition backwards.
-- **Atomic Operations (`writeBatch`):** Multi-document operations succeed or fail as an indivisible unit, preventing orphan incidents or mismatched availability states.
-- **Truthful Submission Guarantees:** UI displays submission success only after Firestore commits both the incident and its initial audit log. If photo upload or network operations fail, the user is notified with an actionable error.
-- **Resilient Image Handling:**
-  - Client-side validation for MIME type (JPEG, PNG, WebP) and 10 MB raw limit.
-  - Progressive canvas compression bounds data URIs below 450 KB, preventing 1 MB Firestore document quota limits under storage quota exhaustion.
-  - Fail-safe fallback loading component (`IncidentImage.jsx`) prevents broken image icons.
-- **Interactive Data Visualisation:** Live Recharts donut and distribution charts reflecting real-time emergency counts.
-- **PDF & CSV Export:** Client-side generation of tabular audit summaries using `jspdf` and `jspdf-autotable`.
-- **Accessible, Responsive Design:** High-contrast dual-theme engine (Dark & Light modes) with full keyboard accessibility and zero-flash persistence.
+All packages and versions below are verified directly from `package.json`:
 
----
-
-## 🛡️ Security & Data Integrity Model
-
-Alert24 uses a multi-layered defense-in-depth model:
-
-1. **Role Immutability:**
-   - Role assignments (`reporter`, `dispatcher`, `responder`) reside in `users/{uid}`.
-   - `firestore.rules` prohibits clients from updating the `role` field under any circumstances.
-2. **Restricted Self-Registration:**
-   - Any public user registering via `createUserWithEmailAndPassword` is constrained by security rules to create only a `role: 'reporter'` profile.
-   - Privileged dispatcher and responder accounts cannot self-register; they are provisioned using server-side scripts with the Firebase Admin SDK.
-3. **Append-Only Audit Trail:**
-   - The `statusLogs` collection is immutable: updates and deletions are permanently denied (`allow update, delete: if false;`).
-   - Every status change must create a new log entry in the same transaction or batch.
-4. **Data Isolation:**
-   - Reporters can only read and list incidents where `reporterId == request.auth.uid`.
-   - Contact details are protected from scraping and user enumeration.
-5. **Global Denial of Deletions:**
-   - Emergency records cannot be deleted by any authenticated client (`allow delete: if false;` on `incidents`).
+| Layer | Technology / Package | Version | Purpose in Alert24 |
+| :--- | :--- | :--- | :--- |
+| **Frontend Framework** | `react`, `react-dom` | `^19.2.5` | Component-based SPA, hooks state management, and synchronous logout listener teardown (`flushSync`). |
+| **Build & Bundler** | `react-scripts` | `5.0.1` | Create React App development server, Webpack production bundler, and Jest test runner. |
+| **Language & Styling** | JavaScript (ES6+), JSX, CSS3 | — | Application logic and custom responsive stylesheets with CSS custom properties (`src/theme.css`). |
+| **Backend-as-a-Service** | `firebase` | `^12.12.0` | Firebase Authentication, Cloud Firestore (real-time NoSQL database), and Firebase Storage. |
+| **Staff Provisioning** | `firebase-admin` (dev) | `^14.5.0` | Node.js Admin SDK CLI script (`scripts/create-staff-account.js`) for creating Dispatcher and Responder accounts. |
+| **Maps & Geolocation** | `leaflet`, `react-leaflet` | `^1.9.4`, `^5.0.0` | Interactive slippy maps rendered with OpenStreetMap raster tiles and browser Geolocation API capture. |
+| **Data Visualisation** | `recharts` | `^3.8.1` | Responsive SVG charts (`BarChart`, `PieChart`, `LineChart`) for incident and response-time analytics. |
+| **PDF & Table Export** | `jspdf`, `jspdf-autotable` | `^4.2.1`, `^5.0.8` | Client-side generation of single-incident and bulk summary PDF reports. |
+| **Automated Testing** | `@testing-library/react`, `@testing-library/jest-dom`, `@testing-library/user-event` | `^16.3.2`, `^6.9.1`, `^13.5.0` | Unit, component, and integration testing with Jest. |
+| **Security Rules Testing** | `@firebase/rules-unit-testing` (dev) | `^5.0.2` | Local Firestore Emulator security rules verification (`src/rules-tests/firestore.rules.test.js`). |
 
 ---
 
-## 🛠️ Tech Stack
+## 6. System Architecture
 
-| Component | Technology | Version | Description |
-|---|---|---|---|
-| **Frontend UI** | React | `19.2.5` | Component-based interface |
-| **Styling** | Vanilla CSS | CSS3 | Custom properties, dual theme tokens, glassmorphism |
-| **Backend & DB** | Google Firebase | `12.12.0` | Cloud Firestore, Firebase Auth, Firebase Storage |
-| **Security Rules** | Firestore Rules | Version 2 | Declarative role-based access control |
-| **Charts** | Recharts | `3.8.1` | Responsive SVG charts |
-| **Document Export** | jsPDF & AutoTable | `4.2.1` / `5.0.8` | Formatted incident report PDF export |
-| **Testing** | Jest & RTL | `27.5.1` / `16.3.2` | Unit, component, and lifecycle tests |
-| **Emulator Testing** | `@firebase/rules-unit-testing` | `5.0.2` | Automated security rules testing |
-| **Build Tooling** | React Scripts (CRA) | `5.0.1` | Webpack build and development server |
+Alert24 uses a **serverless client–BaaS architecture**. There is no custom Node.js/Express runtime server; the React SPA communicates directly with Google Firebase services over HTTPS/WebSockets using the Firebase Web SDK (`src/firebase.js`), while data validation and access control are enforced at the database layer by `firestore.rules` and `storage.rules`.
 
----
+```mermaid
+flowchart LR
+    subgraph Client["React 19 Single-Page Application"]
+        App["App.js (Auth & Role Gate)"]
+        Rep["Dashboard.jsx (Reporter)"]
+        Disp["DispatcherDashboard.jsx (Dispatcher)"]
+        Resp["ResponderDashboard.jsx (Responder)"]
+        App --> Rep
+        App --> Disp
+        App --> Resp
+    end
 
-## 📁 Project Structure
+    subgraph Firebase["Google Firebase (Serverless BaaS)"]
+        Auth["Firebase Authentication"]
+        FS["Cloud Firestore (onSnapshot / writeBatch)"]
+        Storage["Firebase Storage (Incident Photos)"]
+        Rules["Security Rules (firestore.rules / storage.rules)"]
+    end
 
+    subgraph External["Browser & Map Services"]
+        Geo["Browser Geolocation API"]
+        OSM["OpenStreetMap Tile Server"]
+    end
+
+    Client <-->|Session Auth| Auth
+    Client <-->|Real-Time Queries & Batches| Rules
+    Rules <--> FS
+    Rules <--> Storage
+    Rep -->|Optional GPS Capture| Geo
+    Client -->|Raster Map Tiles| OSM
 ```
+
+### Key Architectural Mechanisms
+- **Authentication & Role Gate (`src/App.js`):** Listens to `onAuthStateChanged` and subscribes to `users/{uid}` via `onSnapshot`. To prevent unauthenticated listener assertions, `App.js` waits for the first confirmed Firestore user snapshot before mounting the role-specific dashboard, and uses `flushSync` during logout to unmount active dashboard listeners before calling `signOut(auth)`.
+- **Tab-Scoped Session Persistence (`src/firebase.js`):** Configures Firebase Auth with `browserSessionPersistence` and Firestore with `persistentLocalCache` (`persistentMultipleTabManager`), allowing multiple roles to be tested concurrently in separate browser tabs/windows.
+- **Map Coordinate Handling (`src/utils/geo.js`, `src/components/map/IncidentMap.jsx`):** Reporters can optionally attach numeric `latitude` and `longitude` coordinates via the browser's `navigator.geolocation.getCurrentPosition` API. Written street addresses are **not** automatically geocoded; `partitionByCoords()` plots incidents that have valid numeric coordinates and explicitly displays the count of address-only incidents in the map toolbar.
+
+---
+
+## 7. Project Structure
+
+```text
 alert24/
-├── public/                         # Public HTML wrapper and web manifest
+├── public/                                  # Static HTML template and web app manifest
 ├── scripts/
-│   └── create-staff-account.js     # Trusted Admin SDK provisioning script
+│   └── create-staff-account.js              # Node.js Firebase Admin SDK script for Dispatcher/Responder creation
 ├── src/
-│   ├── components/                 # Modular dashboard components
+│   ├── components/
 │   │   ├── common/
-│   │   │   └── Badges.jsx          # Shared StatusBadge & SeverityBadge
+│   │   │   ├── ActiveIncidentBanner.jsx     # Live progress banner for active emergencies
+│   │   │   ├── ActiveIncidentBanner.css
+│   │   │   ├── Badges.jsx                   # Shared SeverityBadge and StatusBadge components
+│   │   │   ├── HeaderUserIdentity.jsx       # Top-bar user identity chip, role pill, and sign-out control
+│   │   │   └── HeaderUserIdentity.css
 │   │   ├── dispatcher/
-│   │   │   ├── AssignIncidentModal.jsx # Unit assignment modal & checks
-│   │   │   ├── ReportsTab.jsx      # Filterable reports & PDF/CSV export table
-│   │   │   └── ViewIncidentModal.jsx   # Detailed incident overview & timeline
+│   │   │   ├── AssignIncidentModal.jsx      # Responder selection and assignment modal
+│   │   │   ├── ReportsTab.jsx               # Multi-filter incident table with PDF & CSV export actions
+│   │   │   └── ViewIncidentModal.jsx        # Dispatcher incident detail modal, timeline & PDF trigger
+│   │   ├── map/
+│   │   │   ├── IncidentMap.jsx              # Leaflet + OpenStreetMap component with custom severity/status pins
+│   │   │   ├── IncidentMap.css
+│   │   │   └── IncidentMap.test.js          # Map rendering and coordinate partitioning tests
+│   │   ├── notifications/
+│   │   │   ├── NotificationCenter.jsx       # In-app notification feed with unread filter & mark-as-read actions
+│   │   │   ├── NotificationCenter.css
+│   │   │   └── NotificationCenter.test.js   # Notification UI tests
+│   │   ├── pdf/
+│   │   │   └── IncidentReportExport.test.js # Integration tests for single & bulk PDF export workflows
 │   │   ├── reporter/
-│   │   │   ├── ReportEmergencyTab.jsx  # Structured emergency intake form
-│   │   │   └── ViewIncidentModal.jsx   # Citizen incident view & status history
+│   │   │   ├── ReportEmergencyTab.jsx       # Emergency intake form with GPS & photo attachment
+│   │   │   ├── ReportEmergencyTab.css
+│   │   │   └── ViewIncidentModal.jsx        # Reporter incident detail modal, timeline & PDF export
 │   │   ├── responder/
-│   │   │   └── ResolveIncidentModal.jsx# Resolution modal with notes & release
-│   │   └── IncidentImage.jsx       # Safe image loader with fallback states
+│   │   │   └── ResolveIncidentModal.jsx     # Incident resolution confirmation modal with notes input
+│   │   ├── IncidentImage.jsx                # Resilient image renderer with loading skeleton and error fallback
+│   │   ├── IncidentImage.css
+│   │   └── IncidentImage.test.js
+│   ├── hooks/
+│   │   └── useNotifications.js              # Real-time Firestore notification listener & read-receipt hook
+│   ├── images/                              # Local background assets (image4.webp, image4.jpg, image13.jpg)
 │   ├── rules-tests/
-│   │   └── firestore.rules.test.js # 35 live Firestore emulator unit tests
+│   │   └── firestore.rules.test.js          # 41 Firestore Emulator security rules unit tests
 │   ├── utils/
-│   │   ├── imageUtils.js           # Validation, canvas compression & storage
-│   │   ├── imageUtils.test.js      # Image processing test suite
-│   │   ├── incidentLifecycle.js    # State machine, assignment & error helpers
-│   │   └── incidentLifecycle.test.js # Lifecycle state machine test suite
-│   ├── App.js                      # Root router, auth listener & view dispatcher
-│   ├── App.test.js                 # App mounting & authentication tests
-│   ├── Dashboard.jsx               # Reporter dashboard & navigation
-│   ├── Dashboard.test.js           # Reporter submission & batch tests
-│   ├── DispatcherDashboard.jsx     # Dispatcher control room
-│   ├── ResponderDashboard.jsx      # Field responder dashboard
-│   ├── firebase.js                 # Firebase SDK client initialization
-│   ├── index.js                    # React DOM entry point
-│   ├── setupTests.js               # Jest environment polyfills
-│   └── theme.css                   # Global CSS custom properties (Dark/Light)
-├── .env.example                    # Template for environment variables
-├── .gitignore                      # Excludes secrets, node_modules, logs, build
-├── firebase.json                   # Firebase CLI emulator & rules mappings
-├── firestore.indexes.json          # Firestore composite index definitions
-├── firestore.rules                 # Cloud Firestore security rules
-├── storage.rules                   # Firebase Storage security rules
-├── package.json                    # Project dependencies and test scripts
-└── README.md                       # Comprehensive system documentation
+│   │   ├── geo.js                           # Geolocation capture, coordinate validation & map bounds helpers
+│   │   ├── geo.test.js
+│   │   ├── imageUtils.js                    # Image MIME/size validation, canvas compression & Storage/base64 upload
+│   │   ├── imageUtils.test.js
+│   │   ├── incidentLifecycle.js             # State machine transitions, eligibility checks & error formatting
+│   │   ├── incidentLifecycle.test.js
+│   │   ├── notifications.js                 # Deterministic notification ID builders and batch queue helpers
+│   │   ├── notifications.test.js
+│   │   ├── pdfExport.js                     # jsPDF & jspdf-autotable single/bulk report generator
+│   │   ├── pdfExport.test.js
+│   │   ├── responseTime.js                  # Response-time calculation and 7-day trend aggregation
+│   │   └── responseTime.test.js
+│   ├── App.js                               # Authentication state controller, sign-up/login UI & role router
+│   ├── App.css
+│   ├── App.test.js
+│   ├── createStaffAccount.js                # Client-side guard blocking unauthorized browser staff creation
+│   ├── Dashboard.jsx                        # Reporter dashboard component
+│   ├── Dashboard.css
+│   ├── Dashboard.test.js
+│   ├── DispatcherDashboard.jsx              # Dispatcher control room dashboard component
+│   ├── DispatcherDashboard.css
+│   ├── DispatcherDashboard.test.js
+│   ├── ResponderDashboard.jsx               # Responder field operations dashboard component
+│   ├── ResponderDashboard.css
+│   ├── ResponderDashboard.test.js
+│   ├── firebase.js                          # Firebase App, Auth, Firestore & Storage initialization
+│   ├── index.js                             # React DOM entry point
+│   ├── index.css
+│   ├── setupTests.js                        # Jest testing-library setup
+│   └── theme.css                            # Dark and Light theme CSS custom properties
+├── .env.example                             # Environment variables template (no secrets)
+├── firebase.json                            # Firebase CLI rules, indexes & local emulator configuration
+├── firestore.indexes.json                   # Cloud Firestore composite index definitions
+├── firestore.rules                          # Cloud Firestore declarative security rules
+├── storage.rules                            # Firebase Storage declarative security rules
+├── package.json                             # Scripts, dependencies, and devDependencies
+└── README.md                                # Project documentation
 ```
 
 ---
 
-## 🚀 Setup & Reproducibility Guide
-
-Follow these step-by-step instructions to set up, configure, and execute Alert24 on a clean workstation.
+## 8. Installation and Setup
 
 ### Prerequisites
-
 - **Node.js:** v18.0.0 or higher (`node -v`)
 - **npm:** v8.0.0 or higher (`npm -v`)
-- **Java JDK:** OpenJDK 21 or higher (required only if running the local Firestore Emulator via `firebase-tools`)
+- **Java JDK / JRE (Optional):** Java 11+ is required **only** if you wish to run the local Firebase Firestore Emulator for `npm run test:rules`.
 
----
-
-### Step 1: Clone & Install Dependencies
+### Step 1: Clone the Repository and Install Dependencies
 
 ```bash
-# Clone the repository
 git clone https://github.com/BafanaCode/Emergency-Management-And-Response-System.git
 cd Emergency-Management-And-Response-System
-
-# Install project dependencies
 npm install
 ```
 
----
+### Step 2: Configure Environment Variables
 
-### Step 2: Environment Configuration
-
-Create your local `.env` file from the provided template:
+Copy the template `.env.example` file to `.env` in the project root:
 
 ```bash
-# Copy environment template
+# Linux / macOS
 cp .env.example .env
+
+# Windows PowerShell
+Copy-Item .env.example .env
 ```
 
-Open `.env` and fill in your Firebase Web App configuration:
+Populate `.env` with your Firebase Web App credentials from the Firebase Console (**Project Settings → General → Your apps**):
 
 ```env
-REACT_APP_FIREBASE_API_KEY=AIzaSy...
-REACT_APP_FIREBASE_AUTH_DOMAIN=your-project.firebaseapp.com
-REACT_APP_FIREBASE_PROJECT_ID=your-project
-REACT_APP_FIREBASE_STORAGE_BUCKET=your-project.firebasestorage.app
-REACT_APP_FIREBASE_MESSAGING_SENDER_ID=1234567890
-REACT_APP_FIREBASE_APP_ID=1:1234567890:web:abcdef
-REACT_APP_FIREBASE_MEASUREMENT_ID=G-XXXXXXXXXX
+REACT_APP_FIREBASE_API_KEY=your_firebase_api_key_here
+REACT_APP_FIREBASE_AUTH_DOMAIN=your_project_id.firebaseapp.com
+REACT_APP_FIREBASE_PROJECT_ID=your_project_id
+REACT_APP_FIREBASE_STORAGE_BUCKET=your_project_id.firebasestorage.app
+REACT_APP_FIREBASE_MESSAGING_SENDER_ID=your_messaging_sender_id
+REACT_APP_FIREBASE_APP_ID=your_firebase_app_id
+REACT_APP_FIREBASE_MEASUREMENT_ID=your_measurement_id
 ```
 
-> **Note:** If `.env` is omitted, the application falls back to configured defaults for demonstration purposes.
+> **Important:** Never commit `.env` or service account JSON files to version control. Both are excluded via `.gitignore`. `src/firebase.js` validates that `REACT_APP_FIREBASE_API_KEY`, `REACT_APP_FIREBASE_PROJECT_ID`, and `REACT_APP_FIREBASE_AUTH_DOMAIN` are present at startup.
 
----
+### Step 3: Provision Dispatcher and Responder Accounts
 
-### Step 3: Firebase Project Configuration
+Public self-registration is strictly limited to the `reporter` role. To create `dispatcher` or `responder` accounts, use `scripts/create-staff-account.js` with a Firebase Admin SDK service account key:
 
-In the [Firebase Console](https://console.firebase.google.com/):
-
-1. **Authentication:**
-   - Navigate to **Authentication > Sign-in method**.
-   - Enable the **Email/Password** provider.
-2. **Cloud Firestore:**
-   - Navigate to **Firestore Database > Create database** (select production mode).
-   - Deploy security rules and indexes using the Firebase CLI:
-     ```bash
-     firebase deploy --only firestore:rules,firestore:indexes
-     ```
-3. **Firebase Storage:**
-   - Navigate to **Storage > Get started**.
-   - Deploy storage rules:
-     ```bash
-     firebase deploy --only storage
-     ```
-
----
-
-### Step 4: Provisioning Privileged Staff Accounts
-
-Because security rules prevent self-escalation to `dispatcher` or `responder`, staff accounts must be created using the trusted backend provisioning script.
-
-1. Download a Service Account key from Firebase Console:
-   - Go to **Project Settings > Service accounts > Generate new private key**.
-   - Save the file securely outside the repository (or in the repo root; it is ignored by `.gitignore`).
-2. Set the environment variable:
-   ```bash
-   # Linux/macOS
-   export GOOGLE_APPLICATION_CREDENTIALS="/path/to/service-account.json"
-
+1. In the Firebase Console, open **Project Settings → Service accounts → Generate new private key** and save the JSON file securely outside the repository.
+2. Point `GOOGLE_APPLICATION_CREDENTIALS` to your service account key file:
+   ```powershell
    # Windows PowerShell
-   $env:GOOGLE_APPLICATION_CREDENTIALS = "C:\path\to\service-account.json"
+   $env:GOOGLE_APPLICATION_CREDENTIALS = "C:\secure\path\service-account.json"
+   ```
+   ```bash
+   # Linux / macOS
+   export GOOGLE_APPLICATION_CREDENTIALS="/secure/path/service-account.json"
    ```
 3. Run the provisioning script:
    ```bash
-   # Provision a Dispatcher account
+   # Create a Dispatcher account
    node scripts/create-staff-account.js \
      --role dispatcher \
-     --name "Chief Dispatcher" \
-     --email dispatcher@alert24.co.za \
-     --phone "+27 82 111 2233" \
-     --password "DispatchPassword123!"
+     --name "Control Room Dispatcher" \
+     --email dispatcher@example.com \
+     --phone "+27 82 000 0001" \
+     --password "StrongPassword123!"
 
-   # Provision a Responder account
+   # Create a Responder account
    node scripts/create-staff-account.js \
      --role responder \
      --name "Paramedic Unit 1" \
-     --speciality "Emergency Medical Services" \
-     --email responder@alert24.co.za \
-     --phone "+27 82 444 5566" \
-     --password "ResponderPassword123!"
+     --speciality "Medical" \
+     --email responder@example.com \
+     --phone "+27 82 000 0002" \
+     --password "StrongPassword123!"
    ```
+   *(Allowed `--speciality` values for responders: `Medical`, `Fire`, `Rescue`, `Police`, `General`.)*
 
 ---
 
-### Step 5: Running Locally
+## 9. Running the Application
 
-Start the development server:
+All scripts below are defined in `package.json`:
 
-```bash
-npm start
-```
-
-The application opens at `http://localhost:3000`.
+| Command | Description |
+| :--- | :--- |
+| `npm start` | Starts the Create React App development server at `http://localhost:3000`. |
+| `npm run build` | Compiles and bundles an optimised production build into the `build/` folder. |
+| `npm test` | Launches the Jest test runner in interactive watch mode (`react-scripts test`). |
+| `npm test -- --watchAll=false` | Executes all unit, component, and integration test suites once in CI/non-interactive mode. |
+| `npm run test:rules` | Starts the local Firebase Firestore Emulator and executes the 41 security rules tests in `src/rules-tests/firestore.rules.test.js` (requires Java and `firebase-tools`). |
 
 ---
 
-## 🧪 Testing & Verification
+## 10. Firebase Configuration and Data Model
 
-Alert24 features a dual-layer automated test suite consisting of **74 total tests across 6 suites** with a 100% pass rate.
+### Required Firebase Services
+1. **Firebase Authentication:** Enable the **Email/Password** sign-in provider.
+2. **Cloud Firestore:** Create a Firestore database and publish the rules in `firestore.rules` (and composite indexes in `firestore.indexes.json`).
+3. **Firebase Storage:** Enable Storage and publish the rules in `storage.rules`.
 
-### 1. Unit & Component Tests (39 Tests)
+### Firestore Collections
 
-These test component rendering, state transitions, image processing, validation bounds, and report creation:
+| Collection | Document ID Pattern | Purpose & Key Fields |
+| :--- | :--- | :--- |
+| **`users`** | `{uid}` (Firebase Auth UID) | Stores user profiles and operational state: `uid`, `name`, `email`, `phone`, `role` (`'reporter'` \| `'dispatcher'` \| `'responder'`), `speciality`, `isAvailable` (boolean), `activeIncidentId` (string), `createdAt`. |
+| **`incidents`** | Auto-generated ID | Stores emergency reports: `incidentId`, `reporterId`, `reporterName`, `type`, `severity` (`'Minor'` \| `'Serious'` \| `'Critical'`), `address`, `description`, `photoUrl`, `status` (`'Reported'` \| `'Assigned'` \| `'En Route'` \| `'On Scene'` \| `'Resolved'`), `responderId`, `responderName`, `createdAt`, `updatedAt`, `resolvedAt` (on resolution), and optional numeric `latitude` & `longitude`. |
+| **`statusLogs`** | `{incidentId}_reported` (initial) or auto-generated ID | Immutable, append-only audit trail for every status transition and responder field note: `incidentId`, `status`, `updatedBy`, `notes`, `timestamp`. |
+| **`notifications`** | Deterministic ID (e.g., `{incidentId}_reported_dispatchers`) or auto-ID | In-app notification documents targeted to a specific user (`userId: '{uid}'`) or broadcast to all dispatchers (`userId: 'dispatchers'`): `userId`, `incidentId`, `type`, `message`, `isRead`, `createdAt`. |
+| **`notificationReads`** | `{userUid}_{notificationId}` | Per-user read receipts for shared broadcast notifications (`userId === 'dispatchers'`), storing `userId`, `notificationId`, and `readAt`. |
+
+---
+
+## 11. Testing and Verification
+
+Alert24 includes **15 automated test suites** (`183` total tests) across unit, component, integration, and security-rule layers.
+
+### 1. Unit, Component, and Integration Tests (`14` Suites / `142` Tests)
+
+Run all application test suites without watch mode:
 
 ```bash
 npm test -- --watchAll=false
 ```
 
-**Results:**
-- `src/utils/incidentLifecycle.test.js`: State machine guards, availability logic, error sanitization.
-- `src/utils/imageUtils.test.js`: File type validation, canvas compression, bounded fallbacks.
-- `src/components/IncidentImage.test.js`: Error handling and image rendering.
-- `src/Dashboard.test.js`: Atomic report creation and truthful user feedback.
-- `src/App.test.js`: Authentication state listeners and role-based view routing.
+| Test Suite | Scope Verified | Current Status |
+| :--- | :--- | :--- |
+| `src/App.test.js` | Auth listener lifecycle, login/signup flows, role-based dashboard mounting, and synchronous logout teardown. | Passing |
+| `src/components/IncidentImage.test.js` | Image rendering, skeleton states, and broken-URL fallback handling. | Passing |
+| `src/components/map/IncidentMap.test.js` | Leaflet map rendering, marker counts, and missing-coordinate toolbar notices. | Passing |
+| `src/components/notifications/NotificationCenter.test.js` | Notification feed filtering (`All` vs `Unread`), click handling, and mark-as-read actions. | Passing |
+| `src/components/pdf/IncidentReportExport.test.js` | End-to-end single-incident and bulk PDF report generation from dashboard views. | Passing |
+| `src/utils/geo.test.js` | Coordinate validation (`hasValidCoords`), `partitionByCoords`, and browser geolocation error handling. | Passing |
+| `src/utils/imageUtils.test.js` | File type/size validation, HTML5 canvas optimization, Storage upload, and bounded inline base64 fallback. | Passing |
+| `src/utils/incidentLifecycle.test.js` | State machine transitions (`canTransition`), assignment eligibility guards, and error message mapping. | Passing |
+| `src/utils/notifications.test.js` | Deterministic notification IDs, batch helpers, and dispatcher read-state resolution. | Passing |
+| `src/utils/pdfExport.test.js` | `jsPDF` document generation, duration calculations, chronological log sorting, and safe date formatting. | Passing |
+| `src/utils/responseTime.test.js` | Response-time metric calculations (`reportToOnScene`, `reportToResolved`, `assignedToOnScene`) and 7-day trends. | Passing |
+| `src/Dashboard.test.js`, `src/DispatcherDashboard.test.js`, `src/ResponderDashboard.test.js` | Reporter, Dispatcher, and Responder dashboard workflows, batch submissions, and cached statistics rendering. | 139 / 142 tests passing across the 14 suites *(see note below)* |
 
-```text
-Test Suites: 5 passed, 5 of 6 total (1 rules suite skipped when emulator is not running)
-Tests:       39 passed, 39 total
-```
+> **Current Verification Note on Cached Statistics Tests:** Out of `142` unit/component tests across the `14` Jest suites, `139` pass and `3` cached-statistic assertions (one each in `Dashboard.test.js`, `DispatcherDashboard.test.js`, and `ResponderDashboard.test.js`) currently report a `TestingLibraryElementError: Found multiple elements with the text` because the new sidebar operational status widget (`sidebar-ops-card` / `dd-notif-badge`) displays the same numeric count (`14` or `3`) as the main KPI stat card when queried with `screen.getByText(...)`.
 
----
+### 2. Firestore Security Rules Emulator Tests (`1` Suite / `41` Tests)
 
-### 2. Firestore Emulator Security Rules Tests (35 Tests)
-
-To verify the security rules without impacting live production data, run the emulator test suite:
+`src/rules-tests/firestore.rules.test.js` contains **41 tests** written with `@firebase/rules-unit-testing` covering role immutability, reporter data isolation, atomic incident creation with initial `statusLogs`, dispatcher assignment checks, responder forward-only transitions, notification rules, and `notificationReads` receipts.
 
 ```bash
-# Requires JDK 21+ and firebase-tools
 npm run test:rules
 ```
 
-**Results:**
-```text
-PASS src/rules-tests/firestore.rules.test.js
-  Firestore security rules
-    role integrity
-      √ a Reporter cannot change their own role
-      √ a Responder cannot change their own role or protected fields
-      √ a new account can only self-register as reporter
-      √ permitted profile fields can still be edited
-      √ contact details are not readable by other users, but are by dispatchers
-    reporter data isolation
-      √ a Reporter cannot read or modify another reporter's incident
-      √ a Reporter cannot modify even their own incident (status/assignment fields)
-      √ a Reporter can list only their own incidents
-      √ a Reporter can read status history of their incident but not of another's
-    responder permissions
-      √ cannot change protected assignment fields
-      √ cannot skip lifecycle steps or move backwards
-      √ can perform the valid next step on their own assignment
-      √ cannot act on an incident assigned to someone else
-      √ cannot dispatch (assign) incidents
-      √ cannot mark themselves available while an assignment is active
-      √ can resolve: resolvedAt recorded and responder released atomically
-      √ resolution without a resolvedAt timestamp is rejected
-      √ cannot release themselves without resolving
-    audit trail and notification integrity
-      √ arbitrary users cannot forge status-history entries
-      √ status history is immutable (no update or delete)
-      √ users cannot spoof notifications to other users
-      √ recipients can mark only their own notifications read, and nothing else
-      √ unknown collections remain denied
-    incident creation
-      √ a valid incident is created together with its initial Reported history entry
-      √ an incident without its initial history entry is rejected
-      √ an incident cannot be created pre-assigned, for someone else, or with bad data
-      √ dispatchers and responders cannot create incidents
-      √ an existing incident cannot be overwritten through the create path
-    assignment and lifecycle integrity
-      √ a Dispatcher can assign an available responder to a Reported incident
-      √ invalid status transitions are rejected for the dispatcher
-      √ a repeated or conflicting assignment fails safely
-      √ a busy responder cannot receive a second incident
-      √ a dispatcher cannot mark a responder with an active assignment as available
-      √ a dispatcher cannot change a user's role
-      √ incidents cannot be deleted by anyone
-
-Test Suites: 1 passed, 1 total
-Tests:       35 passed, 35 total
-```
-
----
+- When executed via `npm test -- --watchAll=false` without `FIRESTORE_EMULATOR_HOST`, this suite is automatically skipped (`describeIfEmulator`) so standard Jest runs do not fail on machines without Java installed.
+- **Verification Status:** Running `npm run test:rules` requires a local Java JDK/JRE (`java` on `PATH`) to start the Firebase Firestore Emulator. On environments where Java is not installed, these 41 emulator tests remain skipped until a JDK is available.
 
 ### 3. Production Build Verification
 
-Compile and bundle Alert24 for production deployment:
-
 ```bash
 npm run build
 ```
 
-**Output:**
-```text
-Creating an optimized production build...
-Compiled successfully.
-
-File sizes after gzip:
-  448.14 kB  build/static/js/main.405d4dce.js
-  46.35 kB   build/static/js/239.13eed011.chunk.js
-  33.55 kB   build/static/js/732.87337513.chunk.js
-  18.79 kB   build/static/css/main.65205478.css
-  10.45 kB   build/static/js/977.39385e1c.chunk.js
-  1.76 kB    build/static/js/453.41485b19.chunk.js
-```
-The build completes with **0 errors and 0 warnings**.
+The production build (`react-scripts build`) compiles cleanly with **0 errors and 0 warnings**.
 
 ---
 
-## 🌐 Deployment
+## 12. Security and Access Control
 
-To deploy Alert24 to Firebase Hosting:
+Security is enforced through a defense-in-depth combination of client guards and declarative Firebase Security Rules (`firestore.rules` and `storage.rules`):
 
-```bash
-# 1. Build the production application
-npm run build
-
-# 2. Deploy to Firebase Hosting and Firestore
-firebase deploy
-```
-
----
-
-## 📊 Rubric Compliance Matrix (Deliverable 2)
-
-| Rubric Criteria | Weight | Implementation Evidence | Verification Status |
-|---|---|---|---|
-| **1. System Implementation & Completeness** | 15 Marks | Complete end-to-end incident lifecycle: citizen reporting, dispatcher assignment, responder resolution, live updates, dual-theme engine. | Verified across 3 roles with active test suites. |
-| **2. Security & Access Control** | 10 Marks | Least-privilege rules (`firestore.rules`), immutable roles, restricted self-registration, server-side staff provisioning. | 35 automated security rules tests passing. |
-| **3. Data Integrity & State Management** | 10 Marks | Atomic multi-document batches (`writeBatch`), immutable append-only audit trail (`statusLogs`), forward-only state machine. | Automated batch and transaction tests passing. |
-| **4. Quality Assurance & Reliability** | 8 Marks | 74 automated tests (unit, component, and security rules), fail-safe image fallbacks, bounded base64 recovery. | 100% test pass rate, 0 build warnings. |
-| **5. Code Architecture & Documentation** | 7 Marks | Modular components in `src/components/`, comprehensive README, reproducible environment templates (`.env.example`), clean git hygiene. | Clean project tree, zero exposed secrets. |
+1. **Restricted Self-Registration & Role Immutability:**
+   - Any user registering through the client app can only create a `users/{uid}` document with `role == 'reporter'`, `isAvailable == false`, and `activeIncidentId == ''`.
+   - `firestore.rules` prohibits any client from changing a user's `role` field on update (`request.resource.data.role == resource.data.role`).
+2. **Contact Privacy & Data Isolation:**
+   - A user's `users/{uid}` document can only be read by the user themselves or by an authenticated `dispatcher` (`allow read: if isSelf(userId) || isDispatcher()`), preventing enumeration of citizen or staff contact details.
+   - Reporters can only read `incidents` where `resource.data.reporterId == request.auth.uid`.
+3. **Database-Enforced Lifecycle State Machine:**
+   - **Creation:** Only a `reporter` can create an incident, and `firestore.rules` uses `existsAfter()` to require that the initial `statusLogs/{incidentId}_reported` entry is created in the same atomic batch.
+   - **Assignment:** Only a `dispatcher` can transition an incident from `Reported` to `Assigned`, and `getAfter()` verifies that the target responder is simultaneously locked (`isAvailable == false`, `activeIncidentId == incidentId`).
+   - **Field Progression & Resolution:** Only the assigned `responder` can advance `Assigned → En Route → On Scene → Resolved`. On resolution, `getAfter()` verifies that the responder's own user document is atomically released (`isAvailable == true`, `activeIncidentId == ''`).
+4. **Immutable Audit Trail (`statusLogs`):**
+   - `statusLogs` documents cannot be modified or deleted by any client (`allow update, delete: if false;`), and incident documents cannot be deleted (`allow delete: if false;`).
+5. **Storage Upload Constraints (`storage.rules`):**
+   - Only authenticated users can upload to `/incidents/{incidentId}/{fileName}`, restricted to `image/*` content types under `5 MB`.
 
 ---
 
-## 👨‍💻 Author & Acknowledgements
+## 13. Limitations and Future Improvements
 
-**Luyanda Nhlapho**  
-📍 Kimberley, South Africa  
-🎓 Advanced Diploma in ICT — Sol Plaatje University  
-[![GitHub](https://img.shields.io/badge/GitHub-BafanaCode-181717?style=flat-square&logo=github)](https://github.com/BafanaCode)
+### Current Limitations
+- **In-App Notifications Only:** Notifications are delivered exclusively inside the web application via Firestore listeners. External SMS, email, and background Web Push (FCM) alerts are not implemented.
+- **No Automatic Address Geocoding:** Incidents are plotted on the Leaflet map only when the reporter captures numeric GPS coordinates (`latitude` and `longitude`) via browser geolocation. Written street addresses alone are not geocoded into map coordinates.
+- **Single-Responder Assignment Model:** Each incident document tracks a single assigned responder (`responderId` / `responderName`) rather than multi-unit dispatch arrays.
+- **Client-Side Filtering & Aggregation:** Analytics and report filtering operate in browser memory over the active Firestore snapshot rather than using server-side pagination or aggregation queries.
+
+### Future Improvements
+- **Firebase Cloud Messaging (FCM) & SMS Integration:** Add background push notifications and Cloud Functions SMS alerts for critical incident dispatches.
+- **Forward & Reverse Geocoding:** Integrate a geocoding service (such as Nominatim or Google Geocoding API) so typed street addresses automatically resolve to map coordinates, and stream live responder GPS coordinates during `En Route` status.
+- **Multi-Unit Dispatching:** Support assigning multiple responders across different specialities (e.g., Fire + Medical + Police) to a single major emergency.
+- **Server-Side Pagination:** Introduce cursor-based Firestore pagination (`limit` / `startAfter`) for historical incident archives.
+
+---
+
+## 14. Project Information and Acknowledgements
+
+- **Author:** Luyanda Nhlapho ([GitHub: @BafanaCode](https://github.com/BafanaCode))
+- **Qualification:** Advanced Diploma in Information and Communication Technology (ICT)
+- **Institution:** Sol Plaatje University — Kimberley, Northern Cape, South Africa
+- **Project Title:** Alert24 — Emergency Management and Response System

@@ -54,11 +54,11 @@
 
   --dd-font: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --dd-nav-h: 58px;
-  --dd-sidebar-w: 240px;
+  --dd-sidebar-w: 220px;
   --dd-ease: cubic-bezier(0.16, 1, 0.3, 1);
   --dd-ease-io: cubic-bezier(0.4, 0, 0.2, 1);
   --dd-radius: 8px;
-  --dd-radius-lg: 12px;
+  --dd-radius-lg: 10px;
 }
 
 /* ── Global reset for dispatcher scope ── */
@@ -309,25 +309,25 @@
 
 .dd-sidebar-nav {
   flex: 1;
-  padding: 12px 0;
+  padding: 10px 0 6px;
 }
 
 .dd-sidebar-btn {
   width: 100%;
   display: flex;
   align-items: center;
-  gap: 11px;
-  padding: 11px 18px;
+  gap: 10px;
+  padding: 9.5px 16px;
   background: transparent;
   border: none;
   border-left: 3px solid transparent;
   color: var(--text-muted);
-  font-size: 13.5px;
+  font-size: 13px;
   font-weight: 500;
   font-family: var(--dd-font);
   text-align: left;
   cursor: pointer;
-  transition: all 0.18s var(--dd-ease-io);
+  transition: all 0.16s var(--dd-ease-io);
   position: relative;
 }
 
@@ -394,7 +394,7 @@
 /* ── Content Area ── */
 .dd-content {
   flex: 1;
-  padding: 24px;
+  padding: 20px 24px 28px;
   overflow-y: auto;
   min-width: 0;
 }
@@ -403,19 +403,19 @@
    PAGE HEADER
    ════════════════════════════════════════════════════════ */
 .dd-page-header {
-  margin-bottom: 22px;
+  margin-bottom: 18px;
 }
 
 .dd-page-title {
-  font-size: 22px;
+  font-size: 20px;
   font-weight: 700;
   color: var(--text-primary);
-  letter-spacing: -0.4px;
-  margin: 0 0 4px;
+  letter-spacing: -0.35px;
+  margin: 0 0 3px;
 }
 
 .dd-page-subtitle {
-  font-size: 13px;
+  font-size: 12.5px;
   color: var(--text-muted);
   margin: 0;
 }
@@ -427,14 +427,14 @@
   display: grid;
   grid-template-columns: repeat(5, 1fr);
   gap: 14px;
-  margin-bottom: 22px;
+  margin-bottom: 18px;
 }
 
 .dd-stat-card {
   background: var(--bg-surface);
   border: 1px solid var(--border);
   border-radius: var(--dd-radius);
-  padding: 18px 18px 14px;
+  padding: 15px 16px 14px;
   position: relative;
   overflow: hidden;
   box-shadow: var(--shadow-surface);
@@ -451,7 +451,8 @@
   bottom: 0;
   left: 0;
   right: 0;
-  height: 3px;
+  height: 2px;
+  opacity: 0.8;
 }
 
 .dd-stat-card.accent-blue::after  { background: var(--dd-blue-500); }
@@ -460,20 +461,20 @@
 .dd-stat-card.accent-green::after { background: var(--dd-green-600); }
 .dd-stat-card.accent-amber::after { background: var(--dd-amber-500); }
 
-/* Emphasis for critical/unassigned */
+/* Clean uniform surface for unassigned card (no reddish gradient wash) */
 .dd-stat-card.accent-red {
-  border-color: rgba(220, 38, 38, 0.22);
-  background: linear-gradient(135deg, var(--bg-surface), rgba(220, 38, 38, 0.05));
+  border-color: var(--border);
+  background: var(--bg-surface);
 }
 
 .dd-stat-icon-wrap {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  width: 30px;
+  height: 30px;
   border-radius: 7px;
-  margin-bottom: 12px;
+  margin-bottom: 10px;
 }
 
 .dd-stat-icon-wrap.blue   { background: var(--dd-blue-100); }
@@ -483,27 +484,28 @@
 .dd-stat-icon-wrap.amber  { background: var(--dd-amber-100); }
 
 .dd-stat-icon-wrap svg {
-  width: 16px;
-  height: 16px;
+  width: 15px;
+  height: 15px;
 }
 
 .dd-stat-num {
-  font-size: 30px;
+  font-size: 26px;
   font-weight: 700;
   color: var(--text-primary);
   line-height: 1;
-  margin-bottom: 5px;
+  margin-bottom: 4px;
   letter-spacing: -0.5px;
+  font-variant-numeric: tabular-nums;
 }
 
 .dd-stat-card.accent-red .dd-stat-num {
-  color: var(--dd-red-400);
+  color: var(--dd-red-500);
 }
 
 .dd-stat-label {
-  font-size: 12px;
+  font-size: 11.5px;
   color: var(--text-muted);
-  font-weight: 500;
+  font-weight: 600;
   letter-spacing: 0.1px;
 }
 
@@ -514,8 +516,8 @@
   background: var(--bg-surface);
   border: 1px solid var(--border);
   border-radius: var(--dd-radius-lg);
-  padding: 20px 22px;
-  margin-bottom: 18px;
+  padding: 18px 20px;
+  margin-bottom: 16px;
   box-shadow: var(--shadow-surface);
 }
 
@@ -555,19 +557,20 @@
   flex-direction: column;
 }
 
-/* ── Donut Chart & Legend for Incidents By Type ── */
+/* ── Donut Chart & Legend for Incidents By Type (Side-by-Side on Desktop) ── */
 .dd-pie-chart-wrap {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: 168px minmax(0, 1fr);
   align-items: center;
-  gap: 10px;
+  gap: 16px;
   width: 100%;
+  flex: 1;
 }
 
 .dd-donut-container {
   position: relative;
-  width: 100%;
-  height: 170px;
+  width: 168px;
+  height: 175px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -604,10 +607,15 @@
 .dd-chart-legend {
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 6px;
   width: 100%;
-  padding-top: 4px;
-  border-top: 1px solid var(--border-subtle);
+}
+
+@media (max-width: 640px) {
+  .dd-pie-chart-wrap {
+    grid-template-columns: 1fr;
+    justify-items: center;
+  }
 }
 
 .dd-chart-legend-item {

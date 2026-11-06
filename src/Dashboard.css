@@ -71,11 +71,11 @@
   /* Layout — matched to dd/rd exactly */
   --d-font:      'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --d-nav-h:     58px;
-  --d-sidebar-w: 240px;
+  --d-sidebar-w: 220px;
   --d-ease:      cubic-bezier(0.16, 1, 0.3, 1);
   --d-ease-io:   cubic-bezier(0.4, 0, 0.2, 1);
   --d-radius:    8px;
-  --d-radius-lg: 12px;
+  --d-radius-lg: 10px;
 }
 
 /* ── Global reset for reporter scope ────────────────────── */
@@ -248,7 +248,7 @@
 
 .sidebar-nav {
   flex: 1;
-  padding: 12px 0;
+  padding: 10px 0 6px;
   display: flex;
   flex-direction: column;
 }
@@ -258,18 +258,18 @@
   width: 100%;
   display: flex;
   align-items: center;
-  gap: 11px;
-  padding: 11px 18px;
+  gap: 10px;
+  padding: 9.5px 16px;
   background: transparent;
   border: none;
   border-left: 3px solid transparent;
   color: var(--text-muted);
   font-family: var(--d-font);
-  font-size: 13.5px;
+  font-size: 13px;
   font-weight: 500;
   text-align: left;
   cursor: pointer;
-  transition: all 0.18s var(--d-ease-io);
+  transition: all 0.16s var(--d-ease-io);
 }
 
 .sidebar-link:hover {
@@ -327,26 +327,26 @@
 /* ── Content Area — matches dd-content / rd-content ──────── */
 .content-area {
   flex: 1;
-  padding: 24px;
+  padding: 20px 24px 28px;
   overflow-y: auto;
   min-width: 0;
 }
 
 /* ── Page header — matches dd/rd page-header ─────────────── */
 .page-header {
-  margin-bottom: 22px;
+  margin-bottom: 18px;
 }
 
 .page-title {
-  font-size: 22px;
+  font-size: 20px;
   font-weight: 700;
   color: var(--text-primary);
-  letter-spacing: -0.4px;
-  margin: 0 0 4px;
+  letter-spacing: -0.35px;
+  margin: 0 0 3px;
 }
 
 .page-subtitle {
-  font-size: 13px;
+  font-size: 12.5px;
   color: var(--text-muted);
   margin: 0;
 }
@@ -517,14 +517,14 @@
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 14px;
-  margin-bottom: 22px;
+  margin-bottom: 18px;
 }
 
 .stat-card {
   background: var(--bg-surface);
   border: 1px solid var(--border);
   border-radius: var(--d-radius);
-  padding: 18px 18px 14px;
+  padding: 15px 16px 14px;
   position: relative;
   overflow: hidden;
   box-shadow: var(--shadow-surface);
@@ -535,13 +535,14 @@
   border-color: var(--border-strong);
 }
 
-/* Bottom accent strip — 3px to match dd/rd */
+/* Bottom accent strip — subtle 2px indicator */
 .stat-accent {
   position: absolute;
   bottom: 0;
   left: 0;
   right: 0;
-  height: 3px;
+  height: 2px;
+  opacity: 0.8;
 }
 
 .stat-accent.blue   { background: var(--d-blue-500); }
@@ -554,10 +555,10 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  width: 30px;
+  height: 30px;
   border-radius: 7px;
-  margin-bottom: 12px;
+  margin-bottom: 10px;
   flex-shrink: 0;
 }
 
@@ -567,18 +568,19 @@
 .stat-icon.green  { background: var(--d-green-100); }
 
 .stat-number {
-  font-size: 30px;
+  font-size: 26px;
   font-weight: 700;
   color: var(--text-primary);
   line-height: 1;
-  margin-bottom: 5px;
+  margin-bottom: 4px;
   letter-spacing: -0.5px;
+  font-variant-numeric: tabular-nums;
 }
 
 .stat-label {
-  font-size: 12px;
+  font-size: 11.5px;
   color: var(--text-muted);
-  font-weight: 500;
+  font-weight: 600;
   letter-spacing: 0.1px;
 }
 
@@ -587,8 +589,16 @@
    ════════════════════════════════════════════════════════ */
 .two-col-row {
   display: grid;
-  grid-template-columns: 3fr 2fr;
-  gap: 18px;
+  grid-template-columns: minmax(0, 1.55fr) minmax(320px, 1fr);
+  gap: 16px;
+  align-items: stretch;
+}
+
+.two-col-row > .table-card,
+.two-col-row > .activity-card {
+  margin-bottom: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 /* ════════════════════════════════════════════════════════
@@ -600,8 +610,8 @@
   background: var(--bg-surface);
   border: 1px solid var(--border);
   border-radius: var(--d-radius-lg);
-  padding: 20px 22px;
-  margin-bottom: 18px;
+  padding: 18px 20px;
+  margin-bottom: 16px;
   box-shadow: var(--shadow-surface);
 }
 
@@ -2219,22 +2229,76 @@
 }
 
 /* ════════════════════════════════════════════════════════
-   SHARED SETTINGS PAGE STYLES
+   SHARED SETTINGS & PROFILE GRID STYLES
    Used by all three dashboards (Reporter, Dispatcher, Responder)
    ════════════════════════════════════════════════════════ */
-.settings-page {
+.profile-layout-grid {
+  display: grid;
+  grid-template-columns: minmax(260px, 340px) minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.profile-summary-card,
+.profile-details-card {
+  margin-bottom: 0;
+}
+
+.profile-stats-mini {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--divider-color);
+}
+
+.profile-stat-box {
+  background: var(--bg-surface-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  padding: 10px 12px;
   display: flex;
   flex-direction: column;
-  gap: 20px;
-  max-width: 680px;
+  gap: 2px;
+}
+
+.profile-stat-val {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.profile-stat-lbl {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.settings-page {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+  width: 100%;
+  max-width: 100%;
+  align-items: stretch;
 }
 
 .settings-section {
   background: var(--bg-surface);
   border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 24px 26px;
+  border-radius: 10px;
+  padding: 20px 22px;
   box-shadow: var(--shadow-surface);
+  margin-bottom: 0;
+}
+
+@media (max-width: 960px) {
+  .profile-layout-grid,
+  .settings-page {
+    grid-template-columns: 1fr;
+  }
 }
 
 .settings-section-title {
